@@ -1,4 +1,4 @@
-FROM node:lts-slim
+FROM node:lts-alpine
 
 COPY app /notesx/app
 COPY db /notesx/db

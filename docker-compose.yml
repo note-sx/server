@@ -1,0 +1,18 @@
+services:
+  notesx-server:
+    image: ghcr.io/note-sx/server:latest
+    container_name: notesx-server
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - ".env"
+    volumes:
+      - ./db:/notesx/db:Z
+      - ./userfiles:/notesx/userfiles:Z
+    healthcheck:
+      test: (wget -qO - http://localhost:3000/v1/ping | grep -q ok && echo Server running) || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
