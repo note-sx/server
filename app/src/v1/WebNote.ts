@@ -2,7 +2,6 @@ import { App } from '../types';
 
 const template = `
 <!DOCTYPE HTML>
-<!--suppress ALL -->
 <html TEMPLATE_HTML>
 <head>
   <meta charset='utf-8'>
