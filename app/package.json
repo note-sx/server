@@ -1,0 +1,28 @@
+{
+  "name": "notesx-api",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "npx tsc",
+    "test": "podman build --build-arg PACKAGE_VERSION=$(npm pkg get version | xargs) --format docker -t notesx-test .. && podman run --init -it -p=3000:3000 --env-file .env notesx-test",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.5",
+    "hono": "^4.7.1",
+    "node-cron": "^3.0.3",
+    "tslib": "^2.8.1",
+    "typescript": "^5.7.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node-cron": "^3.0.11",
+    "@typescript-eslint/eslint-plugin": "5.29.0",
+    "@typescript-eslint/parser": "5.29.0",
+    "eslint": "^8.49.0",
+    "eslint-config-standard": "^17.1.0",
+    "ts-node": "^10.9.2"
+  }
+}

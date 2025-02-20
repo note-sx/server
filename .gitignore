@@ -1,0 +1,9 @@
+﻿node_modules
+.env
+.idea
+database.db*
+/userfiles/css/*
+/userfiles/files/*
+/userfiles/notes/*
+/app/dist/*
+!.gitkeep
