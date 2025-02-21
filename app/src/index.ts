@@ -35,7 +35,7 @@ app.get('/v1/ping', () => new Response('ok'))
 
 // Rewrite note paths to the full HTML file
 app.get(
-  '/:filename{^\w+$}',
+  '/:filename{^\w{2,}$}',
   serveStatic({
     root: '../userfiles/notes',
     rewriteRequestPath: (path) => {
