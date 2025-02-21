@@ -41,7 +41,6 @@ app.get(
     rewriteRequestPath: (path) => {
       const length = appInstance.folderPrefix
       const subdir = length ? '/' + path.replace(/^\/?/, '').substring(0, length) : ''
-      console.log(subdir + path + '.html')
       return subdir + path + '.html'
     }
   })
