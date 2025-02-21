@@ -20,7 +20,7 @@ export const withAuthenticatedUser = createMiddleware(async (c, next) => {
 
   // Check the user
   const user = appInstance.db
-    .prepare('SELECT * FROM users WHERE uid = ?')
+    .prepare('SELECT * FROM users WHERE uid = ? LIMIT 1')
     .get(uid) as TableRow<'users'>
 
   if (!user) {
@@ -29,7 +29,7 @@ export const withAuthenticatedUser = createMiddleware(async (c, next) => {
 
   // Get the stored API key
   const apiKey = appInstance.db
-    .prepare('SELECT * FROM api_keys WHERE users_id = ? AND revoked IS NULL')
+    .prepare('SELECT * FROM api_keys WHERE users_id = ? AND revoked IS NULL LIMIT 1')
     .get(user.id) as TableRow<'apiKeys'>
   if (!apiKey) {
     throw new HTTPException(statusCode) // Unauthorised

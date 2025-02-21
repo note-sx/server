@@ -90,7 +90,7 @@ export class MapperClass {
     let row = this.db
       .prepare(`SELECT *
                 FROM ${this.table}
-                WHERE ` + query.selectQuery)
+                WHERE ${query.selectQuery} LIMIT 1`)
       .get(...query.binds)
 
     if (!row) {
