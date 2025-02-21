@@ -35,12 +35,13 @@ app.get('/v1/ping', () => new Response('ok'))
 
 // Rewrite note paths to the full HTML file
 app.get(
-  '/:filename{^\w{2,}$}',
+  '/:filename{^\\w{2,}$}',
   serveStatic({
     root: '../userfiles/notes',
     rewriteRequestPath: (path) => {
       const length = appInstance.folderPrefix
       const subdir = length ? '/' + path.replace(/^\/?/, '').substring(0, length) : ''
+      console.log(subdir + path + '.html')
       return subdir + path + '.html'
     }
   })
