@@ -35,7 +35,7 @@ app.get('/v1/ping', () => new Response('ok'))
 
 // Rewrite note paths to the full HTML file
 app.get(
-  '/:filename{^\\w{2,}$}',
+  '/:filename{^\\w{' + Math.max(1, appInstance.folderPrefix) + ',}$}',
   serveStatic({
     root: '../userfiles/notes',
     rewriteRequestPath: (path) => {
@@ -76,7 +76,7 @@ app.onError((error, c) => {
   }
 
   // Send the sanitised message back to the user
-  return c.body('', status, { message: userMessage  })
+  return c.body('', status, { message: userMessage })
 })
 
 // Send the correct process error code for any uncaught exceptions (of which there should be none)
