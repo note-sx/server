@@ -27,7 +27,7 @@ export const appInstance: App = {
 const app = new Hono()
 
 // Routes
-app.use('/v1/*', cors()) // CORS for all routes
+app.use('/v1/*', cors()) // CORS for all API routes
 app.route('/v1/file', fileRouter)
 app.route('/v1/account', accountRouter)
 app.route('/v1/view', viewRouter)
@@ -49,7 +49,6 @@ app.use('/css/*', serveStatic({ root: '../userfiles' }))
 app.use('/files/*', serveStatic({ root: '../userfiles' }))
 
 // Serve static files
-app.use('/frontend', serveStatic({ root: './dist/frontend' }))
 app.use('*', serveStatic({ root: './static' }))
 
 // 404 handler for unmatched routes

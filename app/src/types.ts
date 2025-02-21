@@ -37,7 +37,7 @@ export const StatusCodes: { [key: number]: string } = {
   415: 'Unsupported media type - please open an issue on Github',
   // Custom error codes
   460: 'Plugin out of date - please upgrade to the latest version',
-  461: 'I am currently performing maintenance on the server. Service will return to normal in 30 minutes.',
+  461: 'I am currently performing maintenance on the server. Service will return to normal soon.',
   462: 'Invalid API key, you should automatically be redirected to your browser to request a new one', // 462 will automatically get a new key
   463: 'Invalid authentication token'
 };
