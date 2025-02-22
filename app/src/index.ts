@@ -48,6 +48,23 @@ app.get(
 app.use('/css/*', serveStatic({ root: '../userfiles' }))
 app.use('/files/*', serveStatic({ root: '../userfiles' }))
 
+// Rewrite legacy hosting paths
+app.get(
+    '/file/notesx/*',
+    serveStatic({
+      root: '../userfiles',
+      rewriteRequestPath: (path) => {
+        const match = path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
+        if (match) {
+          const length = appInstance.folderPrefix
+          const subdir = length ? match[2].substring(0, length) : ''
+          return `/${match[1]}/${subdir}/${match[2]}`
+        }
+        return path
+      }
+    })
+)
+
 // Serve static files
 app.use('*', serveStatic({ root: './static' }))
 
