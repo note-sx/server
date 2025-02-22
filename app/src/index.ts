@@ -53,24 +53,27 @@ app.use('/css/*', serveStatic({ root: '../userfiles' }))
 app.use('/files/*', serveStatic({ root: '../userfiles' }))
 
 // Rewrite legacy hosting paths
-app.get(
-    '/file/notesx/*',
-    serveStatic({
-      root: '..',
-      rewriteRequestPath: (path) => {
-        const match = path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
-        if (match) {
-          // User files
-          const length = appInstance.folderPrefix
-          const subdir = length ? match[2].substring(0, length) + '/' : ''
-          return `/userfiles/${match[1]}/${subdir}${match[2]}`
-        } else {
-          // Static assets
-          return '/app/static' + path.substring(12)
+// Only the main share.note.sx server needs these
+if (process.env.LEGACY_PATHS) {
+  app.get(
+      '/file/notesx/*',
+      serveStatic({
+        root: '..',
+        rewriteRequestPath: (path) => {
+          const match = path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
+          if (match) {
+            // User files
+            const length = appInstance.folderPrefix
+            const subdir = length ? match[2].substring(0, length) + '/' : ''
+            return `/userfiles/${match[1]}/${subdir}${match[2]}`
+          } else {
+            // Static assets
+            return '/app/static' + path.substring(12)
+          }
         }
-      }
-    })
-)
+      })
+  )
+}
 
 // Serve static files
 app.use('*', serveStatic({ root: './static' }))

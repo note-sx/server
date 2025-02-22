@@ -1,0 +1,60 @@
+<!DOCTYPE HTML>
+<html TEMPLATE_HTML>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>TEMPLATE_TITLE</title>
+    TEMPLATE_OG_TITLE
+    TEMPLATE_META_DESCRIPTION
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
+    <style>
+        html,
+        body {
+            overflow: visible !important;
+        }
+        div.view-content {
+            height: 100% !important;
+            padding: 0 !important;
+        }
+        .callout.is-collapsible .callout-title {
+            cursor: pointer !important;
+        }
+        TEMPLATE_WIDTH
+    </style>
+    <link rel='stylesheet' href='TEMPLATE_CSS'>
+    <script src='TEMPLATE_ASSETS_WEBROOT/app.js'></script>
+    TEMPLATE_SCRIPTS
+</head>
+<body TEMPLATE_BODY>
+<div class='app-container'>
+    <div class='horizontal-main-container'>
+        <div class='workspace'>
+            <div class='workspace-split mod-vertical mod-root'>
+                <div class='workspace-leaf mod-active'>
+                    <div class='workspace-leaf-content'>
+                        <div class='view-content'>
+                            <div class='markdown-reading-view' style='height:100%;width:100%;'>
+                                <div TEMPLATE_PREVIEW>
+                                    <div class='markdown-preview-sizer markdown-preview-section'>
+                                        <div TEMPLATE_PUSHER></div>
+                                        TEMPLATE_NOTE_CONTENT
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class='status-bar' style='display:flex !important;position:fixed !important;'>
+        <div class='status-bar-item'>
+            <span class='status-bar-item-segment'><a href='https://note.sx/' target='_blank'>Share Note</a> for Obsidian</span>
+            <span id='theme-mode-toggle' class='status-bar-item-segment'>🌓</span>
+        </div>
+    </div>
+</div>
+TEMPLATE_ENCRYPTED_DATA
+TEMPLATE_DECRYPTION_FUNCTIONS
+</body>
+</html>
