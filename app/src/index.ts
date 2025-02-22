@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { cors } from 'hono/cors'
+import { etag } from 'hono/etag'
 import { App, StatusCodes } from './types'
 import db from './v1/Database'
 import Cloudflare from './v1/Cloudflare'
@@ -32,6 +33,9 @@ app.route('/v1/file', fileRouter)
 app.route('/v1/account', accountRouter)
 app.route('/v1/view', viewRouter)
 app.get('/v1/ping', () => new Response('ok'))
+
+// Add etags for all files
+app.use('*', etag())
 
 // Rewrite note paths to the full HTML file
 app.get(
