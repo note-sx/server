@@ -62,8 +62,8 @@ app.get(
         if (match) {
           // User files
           const length = appInstance.folderPrefix
-          const subdir = length ? match[2].substring(0, length) : ''
-          return `/userfiles/${match[1]}/${subdir}/${match[2]}`
+          const subdir = length ? match[2].substring(0, length) + '/' : ''
+          return `/userfiles/${match[1]}/${subdir}${match[2]}`
         } else if (path.startsWith('/file/notesx/')) {
           // Static assets
           return '/app/static' + path.substring(12)
