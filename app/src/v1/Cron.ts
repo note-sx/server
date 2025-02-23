@@ -4,12 +4,6 @@ import { unlink } from 'node:fs/promises'
 import { Paths } from './File'
 import { App } from '../types'
 
-export interface CronEvent {
-  cron: string;
-  type: string;
-  scheduledTime: number;
-}
-
 export class Cron {
   app: App
   paths: Paths
@@ -40,8 +34,8 @@ export class Cron {
 
       // Finally, delete the reference from our DB
       db
-        .prepare('DELETE FROM files WHERE filename = ? AND filetype = ?')
-        .run(file.filename, file.filetype)
+        .prepare('DELETE FROM files WHERE id = ?')
+        .run(file.id)
 
       console.log('Deleted expired file ' + url)
     }
