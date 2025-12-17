@@ -74,7 +74,9 @@ export async function sha256 (data: string | ArrayBuffer) {
 }
 
 export async function sha1 (data: string | Buffer) {
-  return sha('SHA-1', data)
+  // 将 Buffer 转换为 ArrayBuffer
+  const arrayBuffer = typeof data === 'string' ? data : new Uint8Array(data).buffer
+  return sha('SHA-1', arrayBuffer)
 }
 
 export async function shortHash (text: string) {

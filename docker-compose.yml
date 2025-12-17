@@ -1,6 +1,6 @@
 services:
   notesx-server:
-    image: ghcr.io/note-sx/server:latest
+    image: ghcr.io/note-sx/server:1.0.0
     container_name: notesx-server
     restart: always
     ports:

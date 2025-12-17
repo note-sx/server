@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import type { Options as HonoNodeServerOptions } from '@hono/node-server/dist/types'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { cors } from 'hono/cors'
 import { etag } from 'hono/etag'
@@ -136,4 +137,21 @@ process.on('SIGTERM', () => {
 
 new Cron(appInstance)
 
-serve(app)
+const port = parseInt(process.env.PORT || '3000', 10)
+const serverTimeout = parseInt(process.env.SERVER_TIMEOUT || '600000', 10) // 默认 10 分钟
+
+// 通过 Hono node server 的 Options 在创建时配置底层 Node server 的超时
+const serverOptions: HonoNodeServerOptions = {
+  fetch: app.fetch,
+  port,
+  serverOptions: {
+    // 整个请求生命周期超时（Node 18+ 的 requestTimeout）
+    requestTimeout: serverTimeout,
+    // 响应头发送后的超时
+    headersTimeout: serverTimeout,
+    // keep-alive 空闲连接超时，对应响应头里的 Keep-Alive: timeout=...
+    keepAliveTimeout: serverTimeout
+  }
+}
+
+const server = serve(serverOptions)

@@ -1,5 +1,8 @@
 FROM node:lts-alpine
 
+# 安装构建 better-sqlite3 所需的依赖
+RUN apk add --no-cache python3 make g++
+
 COPY app /notesx/app
 COPY db /notesx/db
 COPY userfiles /notesx/userfiles
