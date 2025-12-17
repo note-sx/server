@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import type { Options as HonoNodeServerOptions } from '@hono/node-server/dist/types'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { cors } from 'hono/cors'
 import { etag } from 'hono/etag'
@@ -164,6 +165,20 @@ process.on('SIGTERM', () => {
 
 new Cron(appInstance)
 
-serve(app, (info) => {
+const port = parseInt(process.env.PORT || '3000', 10)
+const serverTimeout = parseInt(process.env.SERVER_TIMEOUT || '600000', 10) // default 10 minutes for large CSS
+
+// Configure Node HTTP server timeouts via Hono node-server options.
+const serverOptions: HonoNodeServerOptions = {
+  fetch: app.fetch,
+  port,
+  serverOptions: {
+    requestTimeout: serverTimeout,
+    headersTimeout: serverTimeout,
+    keepAliveTimeout: serverTimeout
+  }
+}
+
+const server = serve(serverOptions, (info) => {
   console.log(`Listening on http://localhost:${info.port}`)
 })

@@ -51,6 +51,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ env.PACKAGE_VERSION }}
             ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
