@@ -68,7 +68,7 @@ export async function sha256 (data: string | ArrayBuffer) {
 }
 
 export async function sha1 (data: string | Buffer) {
-  // 将 Buffer 转换为 ArrayBuffer
+  // Convert Buffer to ArrayBuffer
   const arrayBuffer = typeof data === 'string' ? data : new Uint8Array(data).buffer
   return sha('SHA-1', arrayBuffer)
 }
