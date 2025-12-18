@@ -62,8 +62,15 @@ export default class WebNote {
       }[tag] || ''))
   }
 
-  setCss (url: string) {
-    this.replace(this.placeholders.css, url)
+  setCss (url: string | string[]) {
+    if (Array.isArray(url)) {
+      // Multiple CSS files: generate multiple link tags
+      const cssLinks = url.map(cssUrl => `<link rel='stylesheet' href='${cssUrl}'>`).join('\n    ')
+      this.replace(this.placeholders.css, cssLinks)
+    } else {
+      // Single CSS file: maintain backward compatibility
+      this.replace(this.placeholders.css, `<link rel='stylesheet' href='${url}'>`)
+    }
   }
 
   setWidth (width: any) {

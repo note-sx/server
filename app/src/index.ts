@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import type { Options as HonoNodeServerOptions } from '@hono/node-server/dist/types'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { cors } from 'hono/cors'
 import { etag } from 'hono/etag'
@@ -136,4 +137,29 @@ process.on('SIGTERM', () => {
 
 new Cron(appInstance)
 
-serve(app)
+const port = parseInt(process.env.PORT || '3000', 10)
+const serverTimeout = parseInt(process.env.SERVER_TIMEOUT || '600000', 10) // Default 10 minutes
+
+// Configure underlying Node server timeout via Hono node server Options
+const serverOptions: HonoNodeServerOptions = {
+  fetch: app.fetch,
+  port,
+  serverOptions: {
+    // keep-alive idle connection timeout, corresponds to Keep-Alive: timeout=... header
+    keepAliveTimeout: serverTimeout
+  }
+}
+
+const server = serve(serverOptions)
+
+// Manually set timeout options after creating server (compatible with different Node.js versions and type definitions)
+// These options are available in Node.js 18+ but type definitions may be incomplete
+if ('timeout' in server && typeof (server as any).timeout === 'number') {
+  (server as any).timeout = serverTimeout
+}
+if ('requestTimeout' in server && typeof (server as any).requestTimeout === 'number') {
+  (server as any).requestTimeout = serverTimeout
+}
+if ('headersTimeout' in server && typeof (server as any).headersTimeout === 'number') {
+  (server as any).headersTimeout = serverTimeout
+}

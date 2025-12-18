@@ -163,13 +163,48 @@ export default class File extends Controller {
       }
     } else if (this.extension === 'css') {
       /*
-       * CSS is special, as it uses the user's UID for the filename
+       * CSS files support multiple chunks
+       * 1. If hash is provided, check if a CSS file with the same hash already exists (avoid duplicate uploads)
+       * 2. If exists, use that filename
+       * 3. If not, generate a new filename (user UID + first 8 chars of hash as suffix)
        */
-      this.filename = await this.getCssFilename()
-      await this.file.load({
-        filetype: this.extension,
-        filename: this.filename
-      })
+      const cssFilename = await this.getCssFilename()
+      
+      if (this.hash) {
+        // Check if a CSS file with the same hash already exists
+        const existingCss = this.app.db.prepare(`
+          SELECT filename, hash 
+          FROM files 
+          WHERE filetype = 'css' 
+          AND filename LIKE ?
+          AND hash = ?
+          LIMIT 1
+        `).get(cssFilename + '%', this.hash) as { filename: string; hash: string } | undefined
+        
+        if (existingCss) {
+          // CSS file with same hash exists, use it
+          this.filename = existingCss.filename
+          await this.file.load({
+            filetype: this.extension,
+            filename: this.filename
+          })
+        } else {
+          // Not found, generate new filename: user UID + first 8 chars of hash as suffix
+          const hashSuffix = this.hash.substring(0, 8)
+          this.filename = cssFilename + hashSuffix
+          await this.file.load({
+            filetype: this.extension,
+            filename: this.filename
+          })
+        }
+      } else {
+        // No hash provided, use legacy logic (single CSS file)
+        this.filename = cssFilename
+        await this.file.load({
+          filetype: this.extension,
+          filename: this.filename
+        })
+      }
     } else {
       /*
        * Other file-types, not HTML
@@ -206,7 +241,33 @@ export default class File extends Controller {
     const template = this.post.template
 
     // Make replacements
-    note.setCss(this.getDisplayUrl(await this.getCssFilename(), 'css'))
+    // Handle CSS files: support array format css?: Array<{ url: string, hash: string }>
+    if (template.css && Array.isArray(template.css) && template.css.length > 0) {
+      const cssUrls = template.css
+        .map((cssItem: { url: string; hash: string }) => {
+          if (!cssItem?.url) return null
+          
+          const cssUrl = cssItem.url
+          if (cssUrl.startsWith('http://') || cssUrl.startsWith('https://')) {
+            return cssUrl
+          } else if (cssUrl.startsWith('/')) {
+            return this.app.baseWebUrl + cssUrl
+          } else {
+            return this.app.baseWebUrl + '/' + cssUrl
+          }
+        })
+        .filter((url: string | null): url is string => url !== null)
+      
+      if (cssUrls.length > 0) {
+        note.setCss(cssUrls)
+      } else {
+        // Array is empty or invalid, fallback to legacy single CSS file logic
+        note.setCss(this.getDisplayUrl(await this.getCssFilename(), 'css'))
+      }
+    } else {
+      // No CSS array provided, use legacy single CSS file logic
+      note.setCss(this.getDisplayUrl(await this.getCssFilename(), 'css'))
+    }
     note.setWidth(template.width)
     note.enableMathjax(!!template.mathJax)
 
@@ -393,37 +454,75 @@ export default class File extends Controller {
     return this.cssFilename
   }
 
+  /**
+   * Check all CSS files for the user
+   * Returns array format, each element contains url and hash
+   */
   async checkCss () {
-    const file = await Mapper(this.app.db, 'files')
-    await file.load({
-      filename: await this.getCssFilename(),
-      filetype: 'css'
-    })
+    // Query all CSS files for this user (matched by filename prefix)
+    const cssFilename = await this.getCssFilename()
+    const cssFiles = this.app.db.prepare(`
+      SELECT filename, hash, filetype 
+      FROM files 
+      WHERE filetype = 'css' 
+      AND filename LIKE ?
+      ORDER BY filename
+    `).all(cssFilename + '%') as Array<{ filename: string; hash: string; filetype: string }>
+
+    // Convert to array format, each element contains url and hash
+    const cssArray = cssFiles.map(cssFile => ({
+      url: this.getDisplayUrl(cssFile.filename, cssFile.filetype),
+      hash: cssFile.hash
+    }))
+
     return {
-      success: !!file?.found
+      success: cssArray.length > 0,
+      css: cssArray.length > 0 ? cssArray : []
     }
   }
 
   /**
    * Check to see if a file matching this exact contents is already uploaded on the server
+   * For CSS files, supports checking multiple chunk files by hash
    */
   async checkFile (item?: CheckFileItem): Promise<CheckFileResult> {
     const params: { [key: string]: string } = {
       filetype: item?.filetype || this.post.filetype,
       hash: item?.hash || this.post.hash
     }
+    
     if (params.filetype === 'css') {
-      // CSS files also need to match on salted UID
-      params.filename = await this.getCssFilename()
-    }
-    const file = await Mapper(this.app.db, 'files')
-    if (params.filetype && params.hash) {
-      await file.load(params)
-      if (file.found) {
-        const url = this.getDisplayUrl(file.row.filename, file.row.filetype)
-        return this.returnSuccessUrl(url)
+      // CSS files: match by hash and user UID (filename prefix)
+      // Since there may be multiple CSS chunks now, need to find the specific file by hash
+      const cssFilename = await this.getCssFilename()
+      if (params.hash) {
+        // Query if there's a matching hash in the user's CSS files
+        const cssFile = this.app.db.prepare(`
+          SELECT filename, hash, filetype 
+          FROM files 
+          WHERE filetype = 'css' 
+          AND filename LIKE ?
+          AND hash = ?
+          LIMIT 1
+        `).get(cssFilename + '%', params.hash) as { filename: string; hash: string; filetype: string } | undefined
+        
+        if (cssFile) {
+          const url = this.getDisplayUrl(cssFile.filename, cssFile.filetype)
+          return this.returnSuccessUrl(url)
+        }
+      }
+    } else {
+      // Non-CSS files: use original logic
+      const file = await Mapper(this.app.db, 'files')
+      if (params.filetype && params.hash) {
+        await file.load(params)
+        if (file.found) {
+          const url = this.getDisplayUrl(file.row.filename, file.row.filetype)
+          return this.returnSuccessUrl(url)
+        }
       }
     }
+    
     return {
       success: false,
       url: null
@@ -440,20 +539,26 @@ export default class File extends Controller {
       result.push(file)
     }
 
-    // Get the info on the user's CSS (if exists)
-    const css = await Mapper(this.app.db, 'files')
-    await css.load({
-      filename: await this.getCssFilename(),
-      filetype: 'css'
-    })
+    // Get the info on the user's CSS files (returns array format)
+    const cssFilename = await this.getCssFilename()
+    const cssFiles = this.app.db.prepare(`
+      SELECT filename, hash, filetype 
+      FROM files 
+      WHERE filetype = 'css' 
+      AND filename LIKE ?
+      ORDER BY filename
+    `).all(cssFilename + '%') as Array<{ filename: string; hash: string; filetype: string }>
+
+    // Convert to array format, each element contains url and hash
+    const cssArray = cssFiles.map(cssFile => ({
+      url: this.getDisplayUrl(cssFile.filename, cssFile.filetype),
+      hash: cssFile.hash
+    }))
 
     return {
       success: true,
       files: result,
-      css: css.notFound ? null : {
-        url: this.getDisplayUrl(await this.getCssFilename(), 'css'),
-        hash: css.row.hash
-      }
+      css: cssArray
     }
   }
 
