@@ -16,9 +16,16 @@ export function queryBuilder (params: QueryParams) {
   const filteredParams: QueryParams = {}
   const query = Object.entries(params)
     .map(([field, value]) => {
-      filteredParams[field] = value
-      return field + '=?'
+      // Sanitize field names to only allow [a-z_] characters
+      const sanitizedField = field.replace(/[^a-z_]/g, '')
+      if (!sanitizedField) {
+        // Skip invalid field names entirely
+        return null
+      }
+      filteredParams[sanitizedField] = value
+      return sanitizedField + '=?'
     })
+    .filter(Boolean) // Remove null entries
 
   return {
     selectQuery: query.join(' AND '),
