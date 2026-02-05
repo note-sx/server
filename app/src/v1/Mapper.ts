@@ -16,9 +16,14 @@ export function queryBuilder (params: QueryParams) {
   const filteredParams: QueryParams = {}
   const query = Object.entries(params)
     .map(([field, value]) => {
-      filteredParams[field] = value
-      return field + '=?'
+      // Sanitize field names to only allow [a-z_] characters
+      const sanitizedField = field.replace(/[^a-z_]/g, '')
+      if (sanitizedField) {
+        filteredParams[sanitizedField] = value
+        return sanitizedField + '=?'
+      }
     })
+    .filter(Boolean) // Remove null entries
 
   return {
     selectQuery: query.join(' AND '),
@@ -90,7 +95,8 @@ export class MapperClass {
     let row = this.db
       .prepare(`SELECT *
                 FROM ${this.table}
-                WHERE ${query.selectQuery} LIMIT 1`)
+                WHERE ${query.selectQuery}
+                LIMIT 1`)
       .get(...query.binds)
 
     if (!row) {
