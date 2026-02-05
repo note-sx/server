@@ -1,6 +1,6 @@
 {
   "name": "notesx-api",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "npx tsc",
@@ -8,7 +8,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.8",
+    "@hono/node-server": "^1.19.9",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^16.4.5",
     "hono": "^4.7.1",
