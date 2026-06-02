@@ -12,6 +12,7 @@ export interface App {
   hashSalt: string;
   folderPrefix: number;
   allowNewUsers: boolean;
+  useShortUrls: boolean;
 }
 
 export enum DebugOption {

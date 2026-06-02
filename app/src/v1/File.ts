@@ -492,6 +492,9 @@ export default class File extends Controller {
    */
   filenameLength (optionalExtension?: string) {
     const { extension } = this.hydrate(undefined, optionalExtension)
+    if (extension === 'html' && this.app.useShortUrls) {
+      return 6
+    }
     return filenameLengths[extension] || filenameLengths.default
   }
 
