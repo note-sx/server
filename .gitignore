@@ -7,3 +7,5 @@ backup.sqlite
 /userfiles/
 /app/dist/*
 !.gitkeep
+.dev.vars
+.wrangler
