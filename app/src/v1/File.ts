@@ -2,15 +2,11 @@ import Controller from './Controller'
 import Mapper, { MapperClass } from './Mapper'
 import { sha1, shortHash } from './helpers'
 import WebNote from './WebNote'
-import { App, DebugOption, serverError, ServerErrors } from '../types'
+import { App, DebugOption, serverError, ServerErrors, StatusCode } from '../types'
 import Log from './Log'
-import { dateToSqlite, now, SQLite } from './Database'
-import * as fs from 'node:fs'
-import { writeFile, unlink } from 'node:fs/promises'
-import { appInstance } from '../index'
+import { dateToSqlite, now } from './Database'
 import { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { ContentfulStatusCode } from 'hono/dist/types/utils/http-status'
 
 export const fileExtensionWhitelist = [
   // HTML
@@ -22,6 +18,22 @@ export const fileExtensionWhitelist = [
   // Fonts
   'ttf', 'otf', 'woff', 'woff2'
 ]
+
+export const mimeTypes: { [key: string]: string } = {
+  html: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  gif: 'image/gif',
+  webm: 'video/webm',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  woff: 'font/woff',
+  woff2: 'font/woff2'
+}
 
 // Length of the base36 filenames (html length is configurable via FILENAME_LENGTH_HTML)
 const filenameLengths: { [key: string]: number } = {
@@ -44,7 +56,7 @@ export default class File extends Controller {
   // app
   // post
   // user
-  db: SQLite
+  db: D1Database
   filename: string = ''
   extension: string = ''
   hash: string
@@ -56,9 +68,9 @@ export default class File extends Controller {
 
   constructor (c: Context) {
     super(c)
-    this.db = appInstance.db
+    this.db = this.app.db
     this.hash = this.post.hash
-    this.paths = new Paths(appInstance)
+    this.paths = new Paths(this.app)
     this.byteLength = this.post.byteLength
   }
 
@@ -105,7 +117,7 @@ export default class File extends Controller {
 
     // All requests must include the SHA1 (40 chars)
     if (this.hash?.length !== 40 || this.hash?.match(/[^a-f0-9]/)) {
-      throw new HTTPException(463 as ContentfulStatusCode) // Bad request
+      throw new HTTPException(463 as StatusCode) // Bad request
     }
 
     this.checkPostFilenameAndExtension()
@@ -265,7 +277,7 @@ export default class File extends Controller {
 
       // Delete the file
       try {
-        await unlink(this.getFullFilePath().filePath)
+        await this.app.files.delete(this.getR2Key())
       } catch {
       }
 
@@ -273,9 +285,10 @@ export default class File extends Controller {
       await this.app.cloudflare.purgeCache([this.getDisplayUrl()])
 
       // Finally, delete the reference from our DB
-      this.db
+      await this.db
         .prepare('DELETE FROM files WHERE filetype = \'html\' AND filename = ?')
-        .run(this.filename)
+        .bind(this.filename)
+        .run()
     }
 
     return {
@@ -287,10 +300,10 @@ export default class File extends Controller {
     await this.initFile()
 
     try {
-      await this.saveFile(Buffer.from(this.post.content))
+      await this.saveFile(this.post.content as ArrayBuffer)
     } catch (e) {
       const status = serverError(ServerErrors.FILE_FAILED_TO_UPLOAD)
-      Log.event(this.context, {
+      await Log.event(this.context, {
         status,
         data: JSON.stringify(e)
       })
@@ -300,24 +313,16 @@ export default class File extends Controller {
     return this.returnSuccessUrl()
   }
 
-  async saveFile (contents: string | Buffer) {
+  async saveFile (contents: string | ArrayBuffer) {
     if (!this.file) {
       throw new HTTPException(serverError(ServerErrors.FILE_FAILED_TO_INIT))
     }
 
-    const {
-      folder,
-      filePath
-    } = this.getFullFilePath()
-
-    // Create the directory if it does not exist
-    if (!fs.existsSync(folder)) {
-      fs.mkdirSync(folder, { recursive: true })
-    }
-
-    // Save the file to disk
+    // Save the file to R2
     try {
-      await writeFile(filePath, contents)
+      await this.app.files.put(this.getR2Key(), contents, {
+        httpMetadata: { contentType: mimeTypes[this.extension] || 'application/octet-stream' }
+      })
     } catch (e) {
       console.log(e)
       throw new HTTPException(serverError(ServerErrors.FILE_FAILED_TO_SAVE))
@@ -346,13 +351,13 @@ export default class File extends Controller {
       hash: this.hash,
       updated: date
     })
-    if (!(this.file.save())) {
+    if (!(await this.file.save())) {
       throw new HTTPException(serverError(ServerErrors.FILE_FAILED_TO_SAVE))
     }
 
     if (this.extension === 'html') {
       const col = isNew ? 'new_notes' : 'updated_notes'
-      this.db.prepare(
+      await this.db.prepare(
         `INSERT INTO shares_daily (date, ${col}) VALUES (unixepoch(date('now')), 1)
          ON CONFLICT(date) DO UPDATE SET ${col} = ${col} + 1`
       ).run()
@@ -491,7 +496,7 @@ export default class File extends Controller {
         // 0.140625 = 36 / 256
         name += Math.floor(bytes[i] * 0.140625).toString(36)
       }
-      if (!check.get(name)) {
+      if (!(await check.bind(name).first())) {
         return name
       }
     }
@@ -545,12 +550,12 @@ export default class File extends Controller {
     return this.paths.folderPath(filename, extension)
   }
 
-  getFullFilePath (optionalFilename?: string, optionalExtension?: string) {
+  getR2Key (optionalFilename?: string, optionalExtension?: string) {
     const {
       filename,
       extension
     } = this.hydrate(optionalFilename, optionalExtension)
-    return this.paths.fullFilePath(filename, extension)
+    return this.paths.r2Key(filename, extension)
   }
 }
 
@@ -574,12 +579,12 @@ export class Paths {
     }
   }
 
-  fullFilePath (filename: string, extension: string) {
-    const folder = this.app.baseFolder + '/userfiles/' + this.folderPath(filename, extension)
-    return {
-      folder,
-      filePath: folder + '/' + filename + '.' + extension
-    }
+  /**
+   * The R2 object key for this file - matches the URL path exactly
+   * (minus the leading slash) so that request paths map 1:1 to R2 keys.
+   */
+  r2Key (filename: string, extension: string) {
+    return this.folderPath(filename, extension) + '/' + filename + '.' + extension
   }
 
   displayUrl (filename: string, extension: string) {

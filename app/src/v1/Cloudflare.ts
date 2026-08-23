@@ -1,7 +1,6 @@
-import { serverError, ServerErrors } from '../types'
+import { Env, serverError, ServerErrors } from '../types'
 import { HonoRequest } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import * as process from 'node:process'
 
 // Top countries to keep per day, aligned with CF's per-query limit. Bounds
 // cf_country_daily growth while keeping long-window roll-ups accurate.
@@ -23,10 +22,12 @@ export type CfDayRow = {
 }
 
 export default class Cloudflare {
+  env: Env
   useTurnstile: boolean
 
-  constructor () {
-    this.useTurnstile = !!(process.env.CLOUDFLARE_TURNSTILE_KEY && process.env.CLOUDFLARE_TURNSTILE_SECRET)
+  constructor (env: Env) {
+    this.env = env
+    this.useTurnstile = !!(env.CLOUDFLARE_TURNSTILE_KEY && env.CLOUDFLARE_TURNSTILE_SECRET)
   }
 
   /**
@@ -37,8 +38,8 @@ export default class Cloudflare {
    * array if zone/API key is unconfigured or the request fails.
    */
   async getDailyAnalytics (since: Date, until: Date): Promise<CfDayRow[]> {
-    const zone = process.env.CLOUDFLARE_ZONE_ID
-    const key = process.env.CLOUDFLARE_API_KEY
+    const zone = this.env.CLOUDFLARE_ZONE_ID
+    const key = this.env.CLOUDFLARE_API_KEY
     if (!zone || !key) return []
 
     const fmtDate = (d: Date) => d.toISOString().slice(0, 10)
@@ -116,12 +117,12 @@ export default class Cloudflare {
   }
 
   async purgeCache (urls: string[]) {
-    if (process.env.CLOUDFLARE_ZONE_ID && process.env.CLOUDFLARE_API_KEY) {
+    if (this.env.CLOUDFLARE_ZONE_ID && this.env.CLOUDFLARE_API_KEY) {
       // Purge the cache if this was a file upload
-      await fetch(`https://api.cloudflare.com/client/v4/zones/${process.env.CLOUDFLARE_ZONE_ID}/purge_cache`, {
+      await fetch(`https://api.cloudflare.com/client/v4/zones/${this.env.CLOUDFLARE_ZONE_ID}/purge_cache`, {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer ' + process.env.CLOUDFLARE_API_KEY,
+          Authorization: 'Bearer ' + this.env.CLOUDFLARE_API_KEY,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -138,7 +139,7 @@ export default class Cloudflare {
 
       // Validate the token by calling the `/siteverify` API.
       const formData = new FormData()
-      formData.append('secret', process.env.CLOUDFLARE_TURNSTILE_SECRET || '')
+      formData.append('secret', this.env.CLOUDFLARE_TURNSTILE_SECRET || '')
       formData.append('response', token)
       formData.append('remoteip', request.header('CF-Connecting-IP') as string)
 
@@ -160,7 +161,7 @@ export default class Cloudflare {
     const head = `<script>function postToken(token){location.href+='&token='+encodeURIComponent(token)}</script>
         <script src='https://challenges.cloudflare.com/turnstile/v0/api.js' async defer></script>`
     const body = `<h3>Setting up Share Note plugin...</h3>
-        <div class='cf-turnstile' data-sitekey='${process.env.CLOUDFLARE_TURNSTILE_KEY}' data-callback='postToken' data-theme='dark'></div>`
+        <div class='cf-turnstile' data-sitekey='${this.env.CLOUDFLARE_TURNSTILE_KEY}' data-callback='postToken' data-theme='dark'></div>`
 
     return new Response(this.htmlResponse(head, body), {
       headers: { 'Content-Type': 'text/html' }

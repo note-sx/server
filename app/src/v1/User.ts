@@ -24,16 +24,17 @@ export default class User extends Controller {
       // Create a new user
       user.row.uid = uid
       user.row.created = now()
-      if (!(user.save())) {
+      if (!(await user.save())) {
         throw new HTTPException(serverError(ServerErrors.USER_FAILED_TO_SAVE)) // Server error, unable to save
       }
     }
     this.user = user
 
     // Revoke any existing keys
-    this.app.db
+    await this.app.db
       .prepare('UPDATE api_keys SET revoked=? WHERE users_id = ? AND revoked IS NULL')
-      .run(now(), user.row.id)
+      .bind(now(), user.row.id)
+      .run()
 
     // Create the new API key
     const apiKey = await Mapper(this.app.db, 'api_keys')
@@ -42,7 +43,7 @@ export default class User extends Controller {
       api_key: await shortHash('' + user.row.id + new Date().getTime()),
       created: now()
     })
-    if (!(apiKey.save())) {
+    if (!(await apiKey.save())) {
       throw new HTTPException(serverError(ServerErrors.API_KEY_FAILED_TO_SAVE)) // Server error, unable to save
     } else {
       return {

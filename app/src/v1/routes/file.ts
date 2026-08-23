@@ -8,9 +8,9 @@ router
   // All file routes must be authenticated
   .post('*', withAuthenticatedUser)
 
-  .post('/check-css', (c) => {
+  .post('/check-css', async (c) => {
     const file = new File(c)
-    return c.json(file.checkCss())
+    return c.json(await file.checkCss())
   })
 
   .post('/create-note', withJson, async (c) => {

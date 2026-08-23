@@ -1,5 +1,5 @@
 import { Context } from 'hono'
-import db from './Database'
+import { App } from '../types'
 
 type LogEvent = {
   status: number; // HTTP status
@@ -25,7 +25,7 @@ export function jsonErrorReplacer (_: string, value: any) {
 }
 
 export class Log {
-  event (context: Context, event: LogEvent) {
+  async event (context: Context, event: LogEvent) {
     // Format the data value correctly
     let data = null
     if (event.data) {
@@ -39,11 +39,13 @@ export class Log {
     }
     if (data === '{}') data = null // Final check for empty object
 
+    const app: App | undefined = context.get('app')
     const user = context.get('user')
     const file = context.get('file')
-    db
+    if (!app) return
+    await app.db
       .prepare('INSERT INTO logs (endpoint, version, status, users_id, files_id, data) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(
+      .bind(
         event.endpoint || context.req.url.match(/^https?:\/\/[^/]+(.+?)(\?|$)/)?.[1] || '',
         event.version || context.req.header('x-sharenote-version') || null,
         event.status || 0,
@@ -51,6 +53,7 @@ export class Log {
         event.files_id || file?.row?.id || null,
         data
       )
+      .run()
   }
 
   console (message: string) {

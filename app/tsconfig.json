@@ -8,20 +8,18 @@
     "inlineSources": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "module": "CommonJS",
-    "target": "ES6",
+    "module": "ESNext",
+    "target": "ES2022",
     "allowJs": true,
     "noImplicitAny": true,
-    "moduleResolution": "node",
+    "moduleResolution": "Bundler",
     "importHelpers": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
-      "lib": [
-      "DOM",
-      "ES5",
-      "ES6",
-      "ES7"
+    "types": ["@cloudflare/workers-types"],
+    "lib": [
+      "ES2022"
     ]
   },
   "include": [

@@ -1,12 +1,12 @@
 import User from '../User'
 import { Hono } from 'hono'
-import { appInstance } from '../../index'
+import { App } from '../../types'
 
-export const router = new Hono()
+export const router = new Hono<{ Variables: { app: App } }>()
 
 router
   .get('/get-key', async (c) => {
-    const cloudflare = appInstance.cloudflare
+    const cloudflare = c.get('app').cloudflare
     const { searchParams } = new URL(c.req.url)
     const token = searchParams.get('token') || ''
     if (!searchParams.has('id')) {

@@ -1,0 +1,44 @@
+name = "notesx-server"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "notesx-db"
+database_id = "aaf7aa6c-19dd-4915-abdb-6a61062d6d60"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "notesx-files"
+
+[assets]
+directory = "./static"
+binding = "ASSETS"
+
+[[rules]]
+type = "Text"
+globs = ["src/v1/templates/**/*.html", "src/v1/templates/**/*.txt"]
+fallthrough = true
+
+[[rules]]
+type = "Data"
+globs = ["**/*.ttf"]
+fallthrough = true
+
+[triggers]
+crons = [
+  "* * * * *",  # sweep expired files
+  "0 * * * *",  # refresh public stats snapshot
+  "30 0 * * *"  # ingest yesterday's Cloudflare analytics
+]
+
+[[routes]]
+pattern = "note.th33raphat.dev/*"
+zone_name = "th33raphat.dev"
+
+[vars]
+BASE_WEB_URL = "https://note.th33raphat.dev"
+FOLDER_PREFIX = "0"
+ALLOW_NEW_USERS = "true"
+MAXIMUM_UPLOAD_SIZE_MB = "5"
+FILENAME_LENGTH_HTML = "8"

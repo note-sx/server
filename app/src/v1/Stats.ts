@@ -1,8 +1,9 @@
 import { App } from '../types'
-import db from './Database'
 import { CfDayRow } from './Cloudflare'
-import { writeFile } from 'node:fs/promises'
-import { Resvg } from '@resvg/resvg-js'
+import { Resvg, initWasm } from '@resvg/resvg-wasm'
+import wasmModule from '@resvg/resvg-wasm/index_bg.wasm'
+import dejaVuSans from './fonts/DejaVuSans.ttf'
+import dejaVuSansBold from './fonts/DejaVuSans-Bold.ttf'
 
 const CHART_DAYS = 90
 const CARD_CHART_DAYS = 30
@@ -38,13 +39,22 @@ type Payload = {
   countries: { code: string; share: number }[]
 }
 
+// The wasm module is instantiated once and reused for the lifetime of the
+// isolate; concurrent callers within the same isolate share the same init
+// promise so we never call initWasm() twice.
+let wasmReady: Promise<void> | null = null
+function ensureWasm (): Promise<void> {
+  if (!wasmReady) wasmReady = initWasm(wasmModule as WebAssembly.Module)
+  return wasmReady
+}
+
 /**
  * Year from SERVICE_START_DATE (UTC). Returns null if the env var is missing
  * or unparseable, which the renderers use as the signal to hide the
  * "Running since" card entirely.
  */
-function computeRunningSinceYear (): number | null {
-  const raw = process.env.SERVICE_START_DATE
+function computeRunningSinceYear (app: App): number | null {
+  const raw = app.env.SERVICE_START_DATE
   if (!raw) return null
   const start = new Date(raw)
   if (isNaN(start.getTime())) return null
@@ -74,7 +84,7 @@ export class Stats {
    * table has any rows.
    */
   async backfillIfEmpty () {
-    if (db.prepare('SELECT 1 FROM cf_daily LIMIT 1').get()) return
+    if (await this.app.db.prepare('SELECT 1 FROM cf_daily LIMIT 1').first()) return
     const lastFull = new Date(Date.now() - MS_PER_DAY)
     const since = new Date(Date.now() - BACKFILL_DAYS * MS_PER_DAY)
     const n = await this.ingest(since, lastFull)
@@ -97,6 +107,7 @@ export class Stats {
     const rows = await this.app.cloudflare.getDailyAnalytics(since, until)
     if (!rows.length) return 0
 
+    const db = this.app.db
     const cols = CF_DAILY_COLUMNS.map(c => c.col)
     const dailyStmt = db.prepare(
       `INSERT INTO cf_daily (date, ${cols.join(', ')})
@@ -107,68 +118,81 @@ export class Stats {
       `INSERT INTO cf_country_daily (date, country, requests) VALUES (?, ?, ?)
        ON CONFLICT(date, country) DO UPDATE SET requests = excluded.requests`
     )
-    const write = db.transaction((days: CfDayRow[]) => {
-      for (const d of days) {
-        dailyStmt.run(d.date, ...CF_DAILY_COLUMNS.map(c => d[c.key] as number))
-        for (const c of d.countries) countryStmt.run(d.date, c.code, c.requests)
-      }
-    })
-    write(rows)
+    const batch: D1PreparedStatement[] = []
+    for (const d of rows) {
+      batch.push(dailyStmt.bind(d.date, ...CF_DAILY_COLUMNS.map(c => d[c.key] as number)))
+      for (const c of d.countries) batch.push(countryStmt.bind(d.date, c.code, c.requests))
+    }
+    await db.batch(batch)
     return rows.length
   }
 
   async refresh () {
     try {
-      const { notes } = this.queryDb()
-      const totals = this.queryCfTotals()
+      const { notes } = await this.queryDb()
+      const totals = await this.queryCfTotals()
       const payload: Payload = {
         updated: Math.floor(Date.now() / 1000),
         headline: {
           requests: totals.requests,
           bytes: totals.bytes,
           notes,
-          runningSinceYear: computeRunningSinceYear()
+          runningSinceYear: computeRunningSinceYear(this.app)
         },
-        shares: this.queryShares(),
-        countries: this.queryCountries()
+        shares: await this.queryShares(),
+        countries: await this.queryCountries()
       }
-      const dir = this.app.baseFolder + '/userfiles'
       const svg = this.renderCard(payload)
+
+      await ensureWasm()
       const ogPng = new Resvg(svg, {
         fitTo: { mode: 'width', value: 1200 },
-        font: { defaultFontFamily: 'DejaVu Sans' }
+        font: {
+          fontBuffers: [new Uint8Array(dejaVuSans as ArrayBuffer), new Uint8Array(dejaVuSansBold as ArrayBuffer)],
+          loadSystemFonts: false,
+          defaultFontFamily: 'DejaVu Sans'
+        }
       }).render().asPng()
+
       await Promise.all([
-        writeFile(dir + '/stats.json', JSON.stringify(payload)),
-        writeFile(dir + '/stats-card.svg', svg),
-        writeFile(dir + '/stats-og.png', ogPng)
+        this.app.files.put('stats/stats.json', JSON.stringify(payload), {
+          httpMetadata: { contentType: 'application/json' }
+        }),
+        this.app.files.put('stats/stats-card.svg', svg, {
+          httpMetadata: { contentType: 'image/svg+xml' }
+        }),
+        this.app.files.put('stats/stats-og.png', ogPng as Uint8Array, {
+          httpMetadata: { contentType: 'image/png' }
+        })
       ])
     } catch (e) {
       console.error('Stats refresh failed:', e)
     }
   }
 
-  private queryDb () {
-    const notes = (db.prepare(
+  private async queryDb () {
+    const row = await this.app.db.prepare(
       "SELECT COUNT(*) AS n FROM files WHERE filetype = 'html'"
-    ).get() as { n: number }).n
-    return { notes }
+    ).first<{ n: number }>()
+    return { notes: row?.n || 0 }
   }
 
-  private queryShares (): ShareRow[] {
+  private async queryShares (): Promise<ShareRow[]> {
     const cutoff = Math.floor(Date.now() / 1000) - CHART_DAYS * SECONDS_PER_DAY
-    return db.prepare(
+    const { results } = await this.app.db.prepare(
       `SELECT date, new_notes, updated_notes FROM shares_daily
        WHERE date >= ? ORDER BY date ASC`
-    ).all(cutoff) as ShareRow[]
+    ).bind(cutoff).all<ShareRow>()
+    return results || []
   }
 
   /** Headline request/bandwidth totals over the last TOTALS_WINDOW_DAYS complete days. */
-  private queryCfTotals () {
-    return db.prepare(
+  private async queryCfTotals () {
+    const row = await this.app.db.prepare(
       `SELECT COALESCE(SUM(requests), 0) AS requests, COALESCE(SUM(bytes), 0) AS bytes
        FROM cf_daily WHERE date >= ?`
-    ).get(totalsWindowCutoff()) as { requests: number; bytes: number }
+    ).bind(totalsWindowCutoff()).first<{ requests: number; bytes: number }>()
+    return row || { requests: 0, bytes: 0 }
   }
 
   /**
@@ -176,16 +200,17 @@ export class Stats {
    * complete days. Shares are of all traffic in the window (so the top N can
    * sum to under 100%), matching the previous live behaviour.
    */
-  private queryCountries (): { code: string; share: number }[] {
+  private async queryCountries (): Promise<{ code: string; share: number }[]> {
     const cutoff = totalsWindowCutoff()
-    const total = (db.prepare(
+    const totalRow = await this.app.db.prepare(
       'SELECT COALESCE(SUM(requests), 0) AS total FROM cf_country_daily WHERE date >= ?'
-    ).get(cutoff) as { total: number }).total
-    const rows = db.prepare(
+    ).bind(cutoff).first<{ total: number }>()
+    const total = totalRow?.total || 0
+    const { results } = await this.app.db.prepare(
       `SELECT country, SUM(requests) AS requests FROM cf_country_daily
        WHERE date >= ? GROUP BY country ORDER BY requests DESC LIMIT ?`
-    ).all(cutoff, TOP_COUNTRIES) as { country: string; requests: number }[]
-    return rows.map(r => ({ code: r.country, share: total > 0 ? r.requests / total * 100 : 0 }))
+    ).bind(cutoff, TOP_COUNTRIES).all<{ country: string; requests: number }>()
+    return (results || []).map(r => ({ code: r.country, share: total > 0 ? r.requests / total * 100 : 0 }))
   }
 
   /**

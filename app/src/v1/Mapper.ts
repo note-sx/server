@@ -1,5 +1,3 @@
-import { SQLite } from './Database'
-
 /**
  * Converts a key => value object into '?' placeholders for safely binding
  * in a SQL query
@@ -43,11 +41,11 @@ export type QueryParams = {
 }
 
 export class MapperClass {
-  db: SQLite
+  db: D1Database
   table: string // Sanitised to [a-z_]
   row: Row
 
-  constructor (db: SQLite, table: string) {
+  constructor (db: D1Database, table: string) {
     this.db = db
     this.row = {}
     this.table = table.replace(/[^a-z_]/g, '')
@@ -70,11 +68,10 @@ export class MapperClass {
   }
 
   async init () {
-    const pragma = this.db.prepare(`PRAGMA table_info(${this.table})`).all()
-    const fields = pragma || []
-    // @ts-ignore
-    fields.forEach((field: { [key: string]: string }) => {
-      const name = field.name
+    const pragma = await this.db.prepare(`PRAGMA table_info(${this.table})`).all()
+    const fields = pragma.results || []
+    fields.forEach((field) => {
+      const name = (field as { name: string }).name
       this.row[name] = null
     })
   }
@@ -93,22 +90,18 @@ export class MapperClass {
 
   async load (params: QueryParams) {
     const query = queryBuilder(params)
-    let row = this.db
+    const row = await this.db
       .prepare(`SELECT *
                 FROM ${this.table}
                 WHERE ${query.selectQuery}
                 LIMIT 1`)
-      .get(...query.binds)
+      .bind(...query.binds)
+      .first()
 
-    if (!row) {
-      // Create a blank user if no record found
-      row = this.emptyRow()
-    }
-
-    this.row = row as Row
+    this.row = (row as Row) || this.emptyRow()
   }
 
-  save () {
+  async save () {
     if (this.row.id) {
       // We already have a row ID, so this is an update
       const row = Object.assign({}, this.row)
@@ -116,24 +109,26 @@ export class MapperClass {
       delete row.id
       const query = queryBuilder(row)
       // noinspection SqlResolve
-      const res = this.db
+      const res = await this.db
         .prepare(`UPDATE ${this.table}
                   SET ${query.updateQuery}
                   WHERE id = ?`)
-        .run(...query.binds, this.row.id)
-      return !!res.changes
+        .bind(...query.binds, this.row.id)
+        .run()
+      return !!res.meta.changes
     } else {
       // Create a new record
       const query = queryBuilder(this.row)
-      const res = this.db
+      const res = await this.db
         .prepare(`
             INSERT INTO ${this.table} ${query.fields}
             VALUES ${query.values}`)
-        .run(...query.binds)
+        .bind(...query.binds)
+        .run()
 
       // Get the newly inserted record and set back to the row variable
-      if (res.changes) {
-        this.row.id = res.lastInsertRowid
+      if (res.meta.changes) {
+        this.row.id = res.meta.last_row_id
         return true
       }
     }
@@ -141,7 +136,7 @@ export class MapperClass {
   }
 }
 
-export default async function Mapper (db: SQLite, table: string) {
+export default async function Mapper (db: D1Database, table: string) {
   const mapper = new MapperClass(db, table)
   await mapper.init()
   return mapper

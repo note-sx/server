@@ -1,43 +1,68 @@
-import { Hono } from 'hono'
-import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
+import { Hono, Context } from 'hono'
 import { cors } from 'hono/cors'
-import { etag } from 'hono/etag'
-import { App, serverError, ServerErrors, StatusCodes } from './types'
-import db from './v1/Database'
+import { App, Env, serverError, ServerErrors, StatusCodes } from './types'
 import Cloudflare from './v1/Cloudflare'
 import log from './v1/Log'
 import { router as fileRouter } from './v1/routes/file'
 import { router as accountRouter } from './v1/routes/account'
 import { HTTPException } from 'hono/http-exception'
 import { Cron } from './v1/Cron'
+import { Paths } from './v1/File'
 import { trackView } from './v1/routes/middleware'
-import fs from 'fs'
+import statsHtmlTemplate from './v1/templates/stats.html'
 
-require('dotenv').config({ quiet: true })
-
-export const appInstance: App = {
-  db,
-  log,
-  cloudflare: new Cloudflare(),
-  baseFolder: __dirname.replace(/\/?app\/[^/]+\/?$/, ''),
-  baseWebUrl: process.env.BASE_WEB_URL?.replace(/\/*$/, '') || '',
-  hashSalt: process.env.HASH_SALT || '',
-  folderPrefix: parseInt(process.env.FOLDER_PREFIX || '0', 10),
-  allowNewUsers: process.env.ALLOW_NEW_USERS?.toLowerCase() !== 'false',
-  filenameLengthHtml: parseInt(process.env.FILENAME_LENGTH_HTML || '8', 10)
+type Variables = {
+  app: App
+  user: any
+  content: any
+  pluginVersion: any
+  file: any
 }
 
-const app = new Hono()
+function buildApp (env: Env): App {
+  return {
+    db: env.DB,
+    files: env.FILES,
+    env,
+    log,
+    cloudflare: new Cloudflare(env),
+    baseWebUrl: (env.BASE_WEB_URL || '').replace(/\/*$/, ''),
+    hashSalt: env.HASH_SALT || '',
+    folderPrefix: parseInt(env.FOLDER_PREFIX || '0', 10),
+    allowNewUsers: env.ALLOW_NEW_USERS?.toLowerCase() !== 'false',
+    filenameLengthHtml: parseInt(env.FILENAME_LENGTH_HTML || '8', 10),
+    maximumUploadSizeMb: parseFloat(env.MAXIMUM_UPLOAD_SIZE_MB || '5')
+  }
+}
+
+/** Serve an R2 object at the given key, or 404 if it doesn't exist. */
+async function serveR2 (c: Context, key: string) {
+  const app: App = c.get('app')
+  const object = await app.files.get(key)
+  if (!object) return c.text('', 404)
+  const headers = new Headers()
+  object.writeHttpMetadata(headers)
+  headers.set('etag', object.httpEtag)
+  return new Response(object.body, { headers })
+}
+
+const app = new Hono<{ Bindings: Env, Variables: Variables }>()
+
+// Build the per-request App context from Workers bindings/vars
+app.use('*', async (c, next) => {
+  c.set('app', buildApp(c.env))
+  await next()
+})
 
 // Routes
 app.use('/v1/*', cors()) // CORS for all API routes
 app.route('/v1/file', fileRouter)
 app.route('/v1/account', accountRouter)
-app.get('/v1/ping', async () => {
+app.get('/v1/ping', async (c) => {
   try {
-    // Check to make sure the upload location exists and is writeable
-    await fs.promises.access(appInstance.baseFolder, fs.constants.W_OK)
+    const appCtx: App = c.get('app')
+    await appCtx.db.prepare('SELECT 1').first()
+    await appCtx.files.head('_healthcheck')
     return new Response('ok')
   } catch (e) {
     console.log(e)
@@ -45,87 +70,58 @@ app.get('/v1/ping', async () => {
   }
 })
 
-// Add etags for all files
-app.use('*', etag())
-
 // Public stats resources (must be registered before the note matcher below).
 // Cached at the edge to match the refresh cron in Cron.ts.
 const STATS_CACHE_SECONDS = 60 * 60 // 1 hour, matches the hourly stats cron
-const oneHourCache = async (c: any, next: any) => {
+const oneHourCache = async (c: Context, next: () => Promise<void>) => {
   await next()
   c.header('Cache-Control', `public, max-age=${STATS_CACHE_SECONDS}`)
 }
-let statsHtmlCache: string | null = null
-const renderStatsHtml = () => {
-  if (statsHtmlCache === null) {
-    const tpl = fs.readFileSync('./static/stats.html', 'utf8')
-    statsHtmlCache = tpl.replace(/\{\{baseUrl\}\}/g, appInstance.baseWebUrl)
-  }
-  return statsHtmlCache
-}
-app.get('/stats', oneHourCache, (c) => c.html(renderStatsHtml()))
-app.get('/stats.json', oneHourCache, serveStatic({ root: '../userfiles' }))
-app.get('/stats/card.svg', oneHourCache, serveStatic({
-  root: '../userfiles',
-  rewriteRequestPath: () => '/stats-card.svg'
-}))
-app.get('/stats/og-image.png', oneHourCache, serveStatic({
-  root: '../userfiles',
-  rewriteRequestPath: () => '/stats-og.png'
-}))
+app.get('/stats', oneHourCache, (c) => {
+  const appCtx: App = c.get('app')
+  return c.html(statsHtmlTemplate.replace(/\{\{baseUrl\}\}/g, appCtx.baseWebUrl))
+})
+app.get('/stats.json', oneHourCache, (c) => serveR2(c, 'stats/stats.json'))
+app.get('/stats/card.svg', oneHourCache, (c) => serveR2(c, 'stats/stats-card.svg'))
+app.get('/stats/og-image.png', oneHourCache, (c) => serveR2(c, 'stats/stats-og.png'))
 
 // Rewrite note paths to the full HTML file
 app.get(
-  '/:filename{^\\w{' + Math.max(1, appInstance.folderPrefix) + ',}$}',
+  '/:filename{^\\w{1,}$}',
   trackView,
-  serveStatic({
-    root: '../userfiles/notes',
-    rewriteRequestPath: (path) => {
-      const length = appInstance.folderPrefix
-      const subdir = length ? '/' + path.replace(/^\/?/, '').substring(0, length) : ''
-      return subdir + path + '.html'
-    }
-  })
+  (c) => {
+    const appCtx: App = c.get('app')
+    const filename = c.req.param('filename')
+    const folderPrefix = appCtx.folderPrefix
+    if (filename.length < Math.max(1, folderPrefix)) return c.text('', 404)
+    const key = new Paths(appCtx).r2Key(filename, 'html')
+    return serveR2(c, key)
+  }
 )
-app.use('/css/*', trackView, serveStatic({ root: '../userfiles' }))
-app.use('/files/*', trackView, serveStatic({ root: '../userfiles' }))
+app.use('/css/*', trackView, (c) => serveR2(c, c.req.path.substring(1)))
+app.use('/files/*', trackView, (c) => serveR2(c, c.req.path.substring(1)))
 
 // Rewrite legacy hosting paths
 // Only the main share.note.sx server needs these
-if (process.env.LEGACY_PATHS) {
-  app.get(
-    '/file/notesx/*',
-    trackView,
-    serveStatic({
-      root: '..',
-      rewriteRequestPath: (path) => {
-        const match = path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
-        if (match) {
-          // User files
-          const length = appInstance.folderPrefix
-          const subdir = length ? match[2].substring(0, length) + '/' : ''
-          return `/userfiles/${match[1]}/${subdir}${match[2]}`
-        } else {
-          // Static assets
-          return '/app/static' + path.substring(12)
-        }
-      }
-    })
-  )
-}
-
-// Serve static files
-app.use('*', serveStatic({ root: './static' }))
+app.get('/file/notesx/*', trackView, async (c) => {
+  const appCtx: App = c.get('app')
+  if (!appCtx.env.LEGACY_PATHS) return c.text('', 404)
+  const match = c.req.path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
+  if (!match) return c.text('', 404)
+  const length = appCtx.folderPrefix
+  const subdir = length ? match[2].substring(0, length) + '/' : ''
+  return serveR2(c, `${match[1]}/${subdir}${match[2]}`)
+})
 
 // 404 handler for unmatched routes
 app.all('*', (c) => {
   return c.text('', 404)
 })
 
-app.onError((error, c) => {
+app.onError(async (error, c) => {
   const err = error as HTTPException
   const status = err.status || 500
-  log.event(c, {
+  await log.event(c, {
     status,
     endpoint: c.req.path
   })
@@ -144,26 +140,12 @@ app.onError((error, c) => {
   return c.body('', status, { message: userMessage })
 })
 
-// Send the correct process error code for any uncaught exceptions (of which there should be none)
-// so that Docker can gracefully restart the container
-process.on('uncaughtException', (err) => {
-  console.error('There was an uncaught error', err)
-  db.close()
-  process.exit(1)
-})
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
-  db.close()
-  process.exit(1)
-})
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM. Gracefully shutting down...')
-  db.close()
-  process.exit(0)
-})
+async function scheduled (event: ScheduledEvent, env: Env) {
+  const cron = new Cron(buildApp(env))
+  await cron.run(event.cron)
+}
 
-new Cron(appInstance)
-
-serve(app, (info) => {
-  console.log(`Listening on http://localhost:${info.port}`)
-})
+export default {
+  fetch: app.fetch,
+  scheduled
+}

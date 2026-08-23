@@ -1,9 +1,7 @@
 import { createMiddleware } from 'hono/factory'
 import { sha256 } from '../helpers'
 import { HTTPException } from 'hono/http-exception'
-import { appInstance } from '../../index'
-import db, { TableRow } from '../Database'
-import { ContentfulStatusCode } from 'hono/dist/types/utils/http-status'
+import { App, StatusCode } from '../../types'
 
 export const withAuthenticatedUser = createMiddleware(async (c, next) => {
   // For some reason, some function is able to pass additional non-numeric data
@@ -18,27 +16,31 @@ export const withAuthenticatedUser = createMiddleware(async (c, next) => {
     throw new HTTPException(statusCode) // Unauthorised
   }
 
+  const app: App = c.get('app')
+
   // Check the user
-  const user = appInstance.db
+  const user = await app.db
     .prepare('SELECT * FROM users WHERE uid = ? LIMIT 1')
-    .get(uid) as TableRow<'users'>
+    .bind(uid)
+    .first()
 
   if (!user) {
     throw new HTTPException(statusCode) // Unauthorised
   }
 
   // Get the stored API key
-  const apiKey = appInstance.db
+  const apiKey = await app.db
     .prepare('SELECT * FROM api_keys WHERE users_id = ? AND revoked IS NULL LIMIT 1')
-    .get(user.id) as TableRow<'apiKeys'>
+    .bind((user as { id: number }).id)
+    .first()
   if (!apiKey) {
     throw new HTTPException(statusCode) // Unauthorised
   }
 
   // Hash the stored key with the nonce, and compare to the provided hash
-  const checkHash = await sha256('' + nonce + apiKey.api_key)
+  const checkHash = await sha256('' + nonce + (apiKey as { api_key: string }).api_key)
   if (checkHash !== userHash.toLowerCase()) {
-    throw new HTTPException(462 as ContentfulStatusCode) // Automatically request new API key
+    throw new HTTPException(462 as StatusCode) // Automatically request new API key
   }
 
   // Successful result, pass the user back into the Request object
@@ -74,8 +76,8 @@ export const withJson = createMiddleware(async (c, next) => {
 })
 
 export const checkSize = createMiddleware(async (c, next) => {
-  const configSize = parseFloat(process.env.MAXIMUM_UPLOAD_SIZE_MB || '5')
-  const allowedSize = configSize || 5 // Default to 5MB if invalid config
+  const app: App = c.get('app')
+  const allowedSize = app.maximumUploadSizeMb || 5 // Default to 5MB if invalid config
   const x = c.get('content')
   const filetype = x?.filetype || ''
   const bytes = x?.byteLength || Infinity
@@ -110,7 +112,11 @@ export const trackView = createMiddleware(async (c, next) => {
 
   // Finally, update the accessed column in the database
   if (filename && extension) {
-    db.prepare('UPDATE files SET accessed = unixepoch() WHERE filename = ? AND filetype = ?').run(filename, extension)
+    const app: App = c.get('app')
+    await app.db
+      .prepare('UPDATE files SET accessed = unixepoch() WHERE filename = ? AND filetype = ?')
+      .bind(filename, extension)
+      .run()
   }
   await next()
 })

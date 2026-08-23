@@ -1,6 +1,5 @@
 import { App } from '../types'
 import { Row } from './Mapper'
-import { appInstance } from '../index'
 import { Context, HonoRequest } from 'hono'
 
 export default class Controller {
@@ -11,7 +10,7 @@ export default class Controller {
   context: Context
 
   constructor (c: Context) {
-    this.app = appInstance
+    this.app = c.get('app')
     this.post = c.get('content') || {}
     this.user = c.get('user') || {}
     this.request = c.req

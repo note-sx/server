@@ -2,26 +2,24 @@
   "name": "notesx-api",
   "version": "1.4.0",
   "scripts": {
-    "dev": "ts-node src/index.ts",
-    "build": "npx tsc",
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "podman build --build-arg PACKAGE_VERSION=$(npm pkg get version | xargs) --format docker -t notesx-test .. && podman run --init -it -p=3000:3000 --env-file .env notesx-test",
-    "start": "node dist/index.js"
+    "deploy": "wrangler deploy",
+    "d1:migrate": "wrangler d1 execute notesx-db --remote --file=schema.sql",
+    "test": "podman build --build-arg PACKAGE_VERSION=$(npm pkg get version | xargs) --format docker -t notesx-test .. && podman run --init -it -p=3000:3000 --env-file .env notesx-test"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.4",
-    "@resvg/resvg-js": "^2.6.2",
-    "better-sqlite3": "^12.10.0",
-    "dotenv": "^17.4.2",
+    "@resvg/resvg-wasm": "^2.6.2",
+    "dejavu-fonts-ttf": "^2.37.3",
     "hono": "^4.12.23",
-    "node-cron": "^4.2.1",
-    "tslib": "^2.8.1",
-    "typescript": "^5.9.3"
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@cloudflare/workers-types": "^5.20260820.1",
     "eslint": "^9.39.4",
     "neostandard": "^0.13.0",
-    "ts-node": "^10.9.2"
+    "typescript": "^5.9.3",
+    "wrangler": "^4.0.0"
   }
 }

@@ -67,7 +67,7 @@ export async function sha256 (data: string | ArrayBuffer) {
   return sha('SHA-256', data)
 }
 
-export async function sha1 (data: string | Buffer) {
+export async function sha1 (data: string | Uint8Array | ArrayBuffer) {
   return sha('SHA-1', data)
 }
 

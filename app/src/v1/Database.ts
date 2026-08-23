@@ -1,6 +1,3 @@
-import Database from 'better-sqlite3'
-import * as fs from 'node:fs'
-
 interface DatabaseSchema {
   users: {
     id: number;
@@ -58,25 +55,3 @@ export function epochToDate (sqliteDate: number) {
 }
 
 export type TableRow<T extends keyof DatabaseSchema> = DatabaseSchema[T]
-const db = new Database('../db/database.db')
-db.pragma('journal_mode = WAL')
-
-// Set up the tables
-const migration = fs.readFileSync('schema.sql', 'utf8')
-db.exec(migration)
-
-// One-shot backfill of `shares_daily` from existing notes so the historical
-// chart isn't empty on launch. Only runs if the table is empty.
-if (!db.prepare('SELECT 1 FROM shares_daily LIMIT 1').get()) {
-  db.exec(`
-    INSERT INTO shares_daily (date, new_notes)
-    SELECT unixepoch(date(created, 'unixepoch')) AS day, COUNT(*)
-    FROM files
-    WHERE filetype = 'html'
-    GROUP BY day
-    ON CONFLICT(date) DO NOTHING
-  `)
-}
-
-export type { Database as SQLite } from 'better-sqlite3'
-export default db

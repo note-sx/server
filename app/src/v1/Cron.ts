@@ -1,9 +1,6 @@
-import cron from 'node-cron'
-import db, { TableRow } from './Database'
-import { unlink } from 'node:fs/promises'
+import { TableRow } from './Database'
 import { Paths } from './File'
 import { App } from '../types'
-import log from './Log'
 import { Stats } from './Stats'
 
 export class Cron {
@@ -15,35 +12,46 @@ export class Cron {
     this.app = app
     this.paths = new Paths(app)
     this.stats = new Stats(app)
+  }
 
-    // Delete expired files
-    cron.schedule('* * * * *', () => this.deleteExpiredFiles())
-
-    // Backup the database daily
-    cron.schedule('0 0 * * *', () => this.backupDatabase())
-
-    // Refresh the public stats snapshot hourly
-    cron.schedule('0 * * * *', () => this.stats.refresh())
-
-    // Snapshot the previous complete day's Cloudflare analytics into our own DB
-    // (CF has finalised it by 00:30 UTC) so we keep them beyond CF's retention.
-    cron.schedule('30 0 * * *', () => this.stats.ingestYesterday())
-
-    // On boot: backfill CF history on first run, then render the snapshot.
-    this.stats.backfillIfEmpty().then(() => this.stats.refresh())
+  /**
+   * Dispatch a Workers Cron Trigger event to the matching job, keyed on the
+   * cron expression configured in wrangler.toml's [triggers].crons.
+   */
+  async run (cronExpression: string) {
+    switch (cronExpression) {
+      case '* * * * *':
+        // Delete expired files
+        await this.deleteExpiredFiles()
+        break
+      case '0 * * * *':
+        // Backfill CF history on first run (no-op once cf_daily has rows),
+        // then refresh the public stats snapshot
+        await this.stats.backfillIfEmpty()
+        await this.stats.refresh()
+        break
+      case '30 0 * * *':
+        // Snapshot the previous complete day's Cloudflare analytics into our
+        // own DB (CF has finalised it by 00:30 UTC) so we keep them beyond
+        // CF's retention.
+        await this.stats.ingestYesterday()
+        break
+      default:
+        console.log('No cron job registered for expression: ' + cronExpression)
+    }
   }
 
   async deleteExpiredFiles () {
-    const files = db
+    const { results } = await this.app.db
       .prepare('SELECT * FROM files WHERE expires IS NOT NULL AND expires < unixepoch()')
       .all()
 
-    for (const row of (files || [])) {
+    for (const row of (results || [])) {
       const file = row as unknown as TableRow<'files'>
 
       // Delete the file
       try {
-        await unlink(this.paths.fullFilePath(file.filename, file.filetype).filePath)
+        await this.app.files.delete(this.paths.r2Key(file.filename, file.filetype))
       } catch {
       }
 
@@ -52,22 +60,12 @@ export class Cron {
       await this.app.cloudflare.purgeCache([url])
 
       // Finally, delete the reference from our DB
-      db
+      await this.app.db
         .prepare('DELETE FROM files WHERE id = ?')
-        .run(file.id)
+        .bind(file.id)
+        .run()
 
       console.log('Deleted expired file ' + url)
-    }
-  }
-
-  async backupDatabase () {
-    try {
-      await db.backup(this.app.baseFolder + '/db/backup.sqlite')
-      log.console('Database backup completed')
-      db.exec('VACUUM')
-    } catch (e) {
-      console.error(e)
-      log.console('Database backup failed')
     }
   }
 }

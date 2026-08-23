@@ -1,11 +1,13 @@
 import { App } from '../types'
-import { readFileSync } from 'node:fs'
 import { checkVersion } from './helpers'
+import htmlTemplate from './templates/note.html'
+import decryptJs from './templates/decrypt.txt'
+import decryptV142Js from './templates/decrypt-v1.4.2.txt'
+import decryptV113Js from './templates/decrypt-v1.1.3.txt'
 
-const htmlTemplate = readFileSync('./src/v1/templates/note.html', 'utf8')
-const decryptionFunctions = '<script>' + readFileSync('./src/v1/templates/decrypt.js', 'utf8') + '</script>'
-const decryptionFunctionsV142 = '<script>' + readFileSync('./src/v1/templates/decrypt-v1.4.2.js', 'utf8') + '</script>'
-const decryptionFunctionsV113 = '<script>' + readFileSync('./src/v1/templates/decrypt-v1.1.3.js', 'utf8') + '</script>'
+const decryptionFunctions = '<script>' + decryptJs + '</script>'
+const decryptionFunctionsV142 = '<script>' + decryptV142Js + '</script>'
+const decryptionFunctionsV113 = '<script>' + decryptV113Js + '</script>'
 const plaintextFunctions = '<script>initDocument();</script>'
 
 export default class WebNote {
