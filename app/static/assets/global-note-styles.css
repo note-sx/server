@@ -14,3 +14,15 @@ div.view-content {
 .force-cursor {
     cursor: pointer !important;
 }
+
+/* "Save to Obsidian" link in the status bar, revealed by app.js when the
+   note carries its Markdown source. The theme CSS styles the segment; this
+   only makes sure `hidden` wins and the link reads as clickable. */
+#save-to-obsidian[hidden] {
+    display: none !important;
+}
+
+#save-to-obsidian {
+    cursor: pointer;
+    text-decoration: none;
+}

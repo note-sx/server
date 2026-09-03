@@ -38,7 +38,7 @@ if (payload && secret) {
       const contentEl = document.getElementById('template-user-data')
       if (contentEl) contentEl.outerHTML = data.content
       document.title = data.basename
-      initDocument()
+      initDocument({ hasSource: typeof data.markdown === 'string' })
     })
     .catch(() => {
       const contentEl = document.getElementById('template-user-data')

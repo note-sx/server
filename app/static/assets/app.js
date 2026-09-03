@@ -1,4 +1,30 @@
-function initDocument() {
+/**
+ * Set up the page once the note content is in the DOM. Plaintext notes call
+ * this directly; encrypted notes call it after decrypting.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.hasSource] - Whether the note carries its Markdown
+ *   source. Encrypted pages pass this from the decrypted payload; when omitted,
+ *   the plaintext data island is checked instead.
+ */
+function initDocument(options = {}) {
+  /*
+   * Save to Obsidian
+   * The share-note plugin embeds the note's Markdown source (opt-in). When it
+   * is present, reveal the link that hands the page over to the plugin via
+   * the obsidian:// protocol. The decryption key comes from the URL fragment
+   * and goes straight into the URI: it never reaches the server.
+   */
+  const hasSource = options.hasSource ?? !!document.getElementById('share-note-source');
+  if (hasSource) {
+    const saveEl = document.getElementById('save-to-obsidian');
+    const pageUrl = window.location.origin + window.location.pathname;
+    const secret = window.location.hash.slice(1);
+    saveEl.href = 'obsidian://share-note?op=import&url=' + encodeURIComponent(pageUrl) +
+      (secret ? '&secret=' + encodeURIComponent(secret) : '');
+    saveEl.hidden = false;
+  }
+
   /*
    * Callout fold/unfold
    */

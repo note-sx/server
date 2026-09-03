@@ -164,6 +164,8 @@ process.on('SIGTERM', () => {
 
 new Cron(appInstance)
 
-serve(app, (info) => {
+// PORT lets a dev instance run beside something else on 3000, e.g.
+// `PORT=3001 npm run dev`. The container keeps the 3000 default.
+serve({ fetch: app.fetch, port: Number(process.env.PORT) || 3000 }, (info) => {
   console.log(`Listening on http://localhost:${info.port}`)
 })

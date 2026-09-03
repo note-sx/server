@@ -5,7 +5,7 @@
     "dev": "ts-node src/index.ts",
     "build": "npx tsc",
     "lint": "eslint src",
-    "test": "podman build --build-arg PACKAGE_VERSION=$(npm pkg get version | xargs) --format docker -t notesx-test .. && podman run --init -it -p=3000:3000 --env-file .env notesx-test",
+    "test": "podman build --build-arg PACKAGE_VERSION=$(npm pkg get version | xargs) --format docker -t notesx-test .. && podman run --init -it -p=${PORT:-3000}:3000 --env-file .env -e PORT=3000 notesx-test",
     "start": "node dist/index.js"
   },
   "dependencies": {
