@@ -26,3 +26,88 @@ div.view-content {
     cursor: pointer;
     text-decoration: none;
 }
+
+/* Printing (Share Note #197). The Obsidian theme CSS keeps the app shell at
+   viewport height with overflow clipped (and the leaf at `width: 0`, sized only
+   by flex), so the note scrolls inside .markdown-preview-view and a print job
+   only ever gets one clipped page. Let every container in the chain grow with
+   its content so the browser can paginate it. The `body` prefixes outrank the
+   theme's own selectors, which also use !important in places. */
+@media print {
+    html, body {
+        height: auto !important;
+        overflow: visible !important;
+        contain: none !important;
+    }
+
+    body .app-container,
+    body .horizontal-main-container,
+    body .workspace,
+    body .workspace-split,
+    body .workspace-leaf,
+    body .workspace-leaf-content,
+    body .view-content,
+    body .markdown-reading-view,
+    body .markdown-preview-view {
+        display: block !important;
+        width: auto !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        contain: none !important;
+    }
+
+    /* The reading view's bottom padding exists for on-screen scrolling; on
+       paper it can spill into a blank final page when the note ends near the
+       page edge. */
+    body .markdown-preview-view {
+        padding-bottom: 0 !important;
+    }
+
+    /* Scroll containers can't be split across pages, so a long code block or
+       callout would be cut off at the page edge. Let them flow, and wrap long
+       code lines since paper has no scrollbar. */
+    body .markdown-rendered pre,
+    body .markdown-rendered .table-wrapper,
+    body .callout-content {
+        overflow: visible !important;
+    }
+
+    body .markdown-rendered pre,
+    body .markdown-rendered pre code {
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere;
+    }
+
+    /* Keep headings with the text that follows them, and don't split a
+       display equation across two pages. Callouts are left to split: asking
+       to keep them whole makes Firefox orphan the heading before a long one
+       and leave the rest of that page blank. */
+    body .markdown-rendered h1,
+    body .markdown-rendered h2,
+    body .markdown-rendered h3,
+    body .markdown-rendered h4,
+    body .markdown-rendered h5,
+    body .markdown-rendered h6 {
+        break-after: avoid;
+    }
+
+    body .math-block {
+        break-inside: avoid;
+    }
+
+    /* Callouts blend their tint into the page (darken / lighten). Firefox
+       rasterises blended content when printing, turning every callout page
+       into an image with no selectable text. On paper the blend changes
+       nothing, so switch it off. */
+    body .callout {
+        mix-blend-mode: normal !important;
+    }
+
+    /* The status bar is position: fixed via inline !important styles, which
+       beat any stylesheet `display`, so it would repeat on every page over the
+       text. Visibility isn't set inline. */
+    body .status-bar {
+        visibility: hidden !important;
+    }
+}

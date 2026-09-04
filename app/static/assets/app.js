@@ -114,6 +114,26 @@ function initDocument(options = {}) {
   };
 
   /*
+     Print in the light theme
+     Browsers skip background colours by default, so a dark-theme note would
+     print as pale text on white paper. Swap to the light theme for the print
+     job and put the dark theme back once the print dialog closes.
+  */
+  let printSwitchedTheme = false;
+  window.addEventListener('beforeprint', () => {
+    printSwitchedTheme = document.body.classList.contains('theme-dark');
+    if (printSwitchedTheme) {
+      document.body.classList.replace('theme-dark', 'theme-light');
+    }
+  });
+  window.addEventListener('afterprint', () => {
+    if (printSwitchedTheme) {
+      document.body.classList.replace('theme-light', 'theme-dark');
+      printSwitchedTheme = false;
+    }
+  });
+
+  /*
    * Copy code button
    */
   document.querySelectorAll('button.copy-code-button')
