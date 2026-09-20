@@ -5,6 +5,7 @@ import { Paths } from './File'
 import { App } from '../types'
 import log from './Log'
 import { Stats } from './Stats'
+import { databaseBackupFile } from '../paths'
 
 export class Cron {
   app: App
@@ -62,7 +63,7 @@ export class Cron {
 
   async backupDatabase () {
     try {
-      await db.backup(this.app.baseFolder + '/db/backup.sqlite')
+      await db.backup(databaseBackupFile)
       log.console('Database backup completed')
       db.exec('VACUUM')
     } catch (e) {

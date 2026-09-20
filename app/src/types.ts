@@ -7,7 +7,6 @@ export interface App {
   db: SQLite;
   log: Log;
   cloudflare: Cloudflare;
-  baseFolder: string;
   baseWebUrl: string;
   hashSalt: string;
   folderPrefix: number;

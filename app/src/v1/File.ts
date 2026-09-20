@@ -8,6 +8,7 @@ import { dateToSqlite, now, SQLite } from './Database'
 import * as fs from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import { appInstance } from '../index'
+import { userFilesFolder } from '../paths'
 import { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { ContentfulStatusCode } from 'hono/dist/types/utils/http-status'
@@ -575,7 +576,7 @@ export class Paths {
   }
 
   fullFilePath (filename: string, extension: string) {
-    const folder = this.app.baseFolder + '/userfiles/' + this.folderPath(filename, extension)
+    const folder = userFilesFolder + '/' + this.folderPath(filename, extension)
     return {
       folder,
       filePath: folder + '/' + filename + '.' + extension

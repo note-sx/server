@@ -7,6 +7,9 @@ services:
       - "3000:3000"
     env_file:
       - ".env"
+    # The server only writes to the two folders mounted below, so the rest of
+    # the container can be read-only. Uncomment to harden the container.
+    # read_only: true
     volumes:
       - ./db:/notesx/db:Z
       - ./userfiles:/notesx/userfiles:Z

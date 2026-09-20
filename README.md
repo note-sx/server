@@ -15,6 +15,11 @@ This file will sync to all your devices using your normal sync method, so all yo
 3. Update the `.env` options as below
 4. `docker-compose up -d`
 
+The server writes only to the `db` and `userfiles` volumes, so the container can
+run with a read-only root filesystem. `docker-compose.yml` has a commented-out
+`read_only: true` line you can enable if you want that. No other configuration
+is needed - SQLite keeps its scratch files in `db/tmp`.
+
 ## `.env` options
 
 | Option                      | Example             | Description                                                                                                                              |

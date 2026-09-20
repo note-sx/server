@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import * as fs from 'node:fs'
+import { databaseFile, schemaFile, tmpFolder } from '../paths'
 
 interface DatabaseSchema {
   users: {
@@ -57,12 +58,29 @@ export function epochToDate (sqliteDate: number) {
   return new Date(sqliteDate * 1000)
 }
 
+/*
+  VACUUM copies the whole database into a scratch file before overwriting the
+  original, and SQLite looks for somewhere to put it in SQLITE_TMPDIR, TMPDIR,
+  /var/tmp, /usr/tmp, /tmp and finally the working directory. On a container
+  with a read-only root every one of those fails, so point SQLite at the db
+  volume, which is writable by definition. Failure to create the folder is left
+  to /v1/ping to report rather than crashing the server on boot.
+*/
+if (!process.env.SQLITE_TMPDIR) {
+  try {
+    fs.mkdirSync(tmpFolder, { recursive: true })
+    process.env.SQLITE_TMPDIR = tmpFolder
+  } catch (e) {
+    console.error('Could not create the SQLite scratch folder', e)
+  }
+}
+
 export type TableRow<T extends keyof DatabaseSchema> = DatabaseSchema[T]
-const db = new Database('../db/database.db')
+const db = new Database(databaseFile)
 db.pragma('journal_mode = WAL')
 
 // Set up the tables
-const migration = fs.readFileSync('schema.sql', 'utf8')
+const migration = fs.readFileSync(schemaFile, 'utf8')
 db.exec(migration)
 
 // One-shot backfill of `shares_daily` from existing notes so the historical

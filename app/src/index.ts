@@ -12,6 +12,7 @@ import { router as accountRouter } from './v1/routes/account'
 import { HTTPException } from 'hono/http-exception'
 import { Cron } from './v1/Cron'
 import { trackView } from './v1/routes/middleware'
+import { baseFolder, staticFolder, statsTemplateFile, userFilesFolder, writableFolders } from './paths'
 import fs from 'fs'
 
 require('dotenv').config({ quiet: true })
@@ -20,7 +21,6 @@ export const appInstance: App = {
   db,
   log,
   cloudflare: new Cloudflare(),
-  baseFolder: __dirname.replace(/\/?app\/[^/]+\/?$/, ''),
   baseWebUrl: process.env.BASE_WEB_URL?.replace(/\/*$/, '') || '',
   hashSalt: process.env.HASH_SALT || '',
   folderPrefix: parseInt(process.env.FOLDER_PREFIX || '0', 10),
@@ -36,11 +36,13 @@ app.route('/v1/file', fileRouter)
 app.route('/v1/account', accountRouter)
 app.get('/v1/ping', async () => {
   try {
-    // The application itself can live on a read-only filesystem. Only the
-    // database and uploaded files need writable storage.
-    const writableDirectories = ['db', 'userfiles']
-    await Promise.all(writableDirectories.map(directory =>
-      fs.promises.access(`${appInstance.baseFolder}/${directory}`, fs.constants.W_OK)
+    /*
+      Check the upload and database locations exist and are writable. The
+      application itself can sit on a read-only filesystem, so only these are
+      checked - see paths.ts for the layout.
+    */
+    await Promise.all(writableFolders.map(folder =>
+      fs.promises.access(folder, fs.constants.W_OK)
     ))
     return new Response('ok')
   } catch (e) {
@@ -62,19 +64,19 @@ const oneHourCache = async (c: any, next: any) => {
 let statsHtmlCache: string | null = null
 const renderStatsHtml = () => {
   if (statsHtmlCache === null) {
-    const tpl = fs.readFileSync('./static/stats.html', 'utf8')
+    const tpl = fs.readFileSync(statsTemplateFile, 'utf8')
     statsHtmlCache = tpl.replace(/\{\{baseUrl\}\}/g, appInstance.baseWebUrl)
   }
   return statsHtmlCache
 }
 app.get('/stats', oneHourCache, (c) => c.html(renderStatsHtml()))
-app.get('/stats.json', oneHourCache, serveStatic({ root: '../userfiles' }))
+app.get('/stats.json', oneHourCache, serveStatic({ root: userFilesFolder }))
 app.get('/stats/card.svg', oneHourCache, serveStatic({
-  root: '../userfiles',
+  root: userFilesFolder,
   rewriteRequestPath: () => '/stats-card.svg'
 }))
 app.get('/stats/og-image.png', oneHourCache, serveStatic({
-  root: '../userfiles',
+  root: userFilesFolder,
   rewriteRequestPath: () => '/stats-og.png'
 }))
 
@@ -83,7 +85,7 @@ app.get(
   '/:filename{^\\w{' + Math.max(1, appInstance.folderPrefix) + ',}$}',
   trackView,
   serveStatic({
-    root: '../userfiles/notes',
+    root: `${userFilesFolder}/notes`,
     rewriteRequestPath: (path) => {
       const length = appInstance.folderPrefix
       const subdir = length ? '/' + path.replace(/^\/?/, '').substring(0, length) : ''
@@ -91,8 +93,8 @@ app.get(
     }
   })
 )
-app.use('/css/*', trackView, serveStatic({ root: '../userfiles' }))
-app.use('/files/*', trackView, serveStatic({ root: '../userfiles' }))
+app.use('/css/*', trackView, serveStatic({ root: userFilesFolder }))
+app.use('/files/*', trackView, serveStatic({ root: userFilesFolder }))
 
 // Rewrite legacy hosting paths
 // Only the main share.note.sx server needs these
@@ -101,7 +103,7 @@ if (process.env.LEGACY_PATHS) {
     '/file/notesx/*',
     trackView,
     serveStatic({
-      root: '..',
+      root: baseFolder,
       rewriteRequestPath: (path) => {
         const match = path.match(/^\/file\/notesx\/(css|files)\/([a-z0-9.]+)$/)
         if (match) {
@@ -119,7 +121,7 @@ if (process.env.LEGACY_PATHS) {
 }
 
 // Serve static files
-app.use('*', serveStatic({ root: './static' }))
+app.use('*', serveStatic({ root: staticFolder }))
 
 // 404 handler for unmatched routes
 app.all('*', (c) => {

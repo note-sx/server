@@ -3,6 +3,7 @@
 .env
 .idea
 database.db*
+/db/tmp/
 backup.sqlite
 /userfiles/
 /app/dist/*
