@@ -36,8 +36,12 @@ app.route('/v1/file', fileRouter)
 app.route('/v1/account', accountRouter)
 app.get('/v1/ping', async () => {
   try {
-    // Check to make sure the upload location exists and is writeable
-    await fs.promises.access(appInstance.baseFolder, fs.constants.W_OK)
+    // The application itself can live on a read-only filesystem. Only the
+    // database and uploaded files need writable storage.
+    const writableDirectories = ['db', 'userfiles']
+    await Promise.all(writableDirectories.map(directory =>
+      fs.promises.access(`${appInstance.baseFolder}/${directory}`, fs.constants.W_OK)
+    ))
     return new Response('ok')
   } catch (e) {
     console.log(e)
