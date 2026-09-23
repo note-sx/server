@@ -5,8 +5,7 @@ import WebNote from './WebNote'
 import { App, DebugOption, serverError, ServerErrors } from '../types'
 import Log from './Log'
 import { dateToSqlite, now, SQLite } from './Database'
-import * as fs from 'node:fs'
-import { writeFile, unlink } from 'node:fs/promises'
+import { mkdir, writeFile, unlink } from 'node:fs/promises'
 import { appInstance } from '../index'
 import { userFilesFolder } from '../paths'
 import { Context } from 'hono'
@@ -311,13 +310,9 @@ export default class File extends Controller {
       filePath
     } = this.getFullFilePath()
 
-    // Create the directory if it does not exist
-    if (!fs.existsSync(folder)) {
-      fs.mkdirSync(folder, { recursive: true })
-    }
-
-    // Save the file to disk
+    // Create the folder if needed, then save the file
     try {
+      await mkdir(folder, { recursive: true })
       await writeFile(filePath, contents)
     } catch (e) {
       console.log(e)
