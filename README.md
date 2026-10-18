@@ -34,3 +34,13 @@ is needed - SQLite keeps its scratch files in `db/tmp`.
 | CLOUDFLARE_TURNSTILE_SECRET |                     | *OPTIONAL.* If you want to use Turnstile to show a captcha when someone creates an account.                                              |
 | CLOUDFLARE_ZONE_ID          |                     | *OPTIONAL.* If you want to use Cloudflare proxy in front of your server.                                                                 |
 | CLOUDFLARE_API_KEY          |                     | *OPTIONAL.* If you want to use Cloudflare proxy in front of your server.                                                                 |
+| ALLOW_CUSTOM_SLUGS          | false               | *OPTIONAL.* Enable custom slug creation for compatible self-hosted clients. Default `false`. |
+
+### Custom slugs for self-hosted clients
+> [!IMPORTANT] 
+> This feature is DISABLED for default server, to reduce the possible maintainace load for the author.
+
+`ALLOW_CUSTOM_SLUGS` defaults to `false`. Set it to `true` and restart the server, then enable **Enable custom slugs** in a compatible Share Note plugin.
+The sharing will prompt the user for the custom slug and stored at `share_slug` in the properties.  
+
+Slug format: `[0-9A-z][0-9A-z_-]{1, 63}` (Alphanumeric for 64 characters, underscore and hyphen could be used except the first character)
