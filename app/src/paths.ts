@@ -11,8 +11,10 @@
   under ts-node and `<baseFolder>/app/dist` once compiled. Keep it there.
 */
 
+import { resolve } from 'node:path'
+
 /** The install root: the folder holding `app`, `db` and `userfiles`. */
-export const baseFolder = __dirname.replace(/\/?app\/[^/]+\/?$/, '')
+export const baseFolder = resolve(__dirname, '..', '..')
 
 /** The application folder, holding the code, the schema and the static assets. */
 export const appFolder = `${baseFolder}/app`

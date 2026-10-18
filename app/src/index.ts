@@ -12,6 +12,8 @@ import { router as accountRouter } from './v1/routes/account'
 import { HTTPException } from 'hono/http-exception'
 import { Cron } from './v1/Cron'
 import { trackView } from './v1/routes/middleware'
+import { Paths } from './v1/File'
+import { SlugError, SlugPublication } from './v1/custom-slugs'
 import { baseFolder, staticFolder, statsTemplateFile, userFilesFolder, writableFolders } from './paths'
 import fs from 'fs'
 
@@ -25,6 +27,7 @@ export const appInstance: App = {
   hashSalt: process.env.HASH_SALT || '',
   folderPrefix: parseInt(process.env.FOLDER_PREFIX || '0', 10),
   allowNewUsers: process.env.ALLOW_NEW_USERS?.toLowerCase() !== 'false',
+  allowCustomSlugs: process.env.ALLOW_CUSTOM_SLUGS?.toLowerCase() === 'true',
   filenameLengthHtml: parseInt(process.env.FILENAME_LENGTH_HTML || '8', 10)
 }
 
@@ -80,9 +83,35 @@ app.get('/stats/og-image.png', oneHourCache, serveStatic({
   rewriteRequestPath: () => '/stats-og.png'
 }))
 
+// Slugs resolve to independent backing files, so reclaiming a name cannot reuse
+// an expired publication's file. Do not edge-cache this recyclable namespace.
+app.get('/:slug{[A-Za-z0-9][A-Za-z0-9_-]{0,63}}', async (c, next) => {
+  const publication = db.prepare(`
+    SELECT s.*, f.filename, f.users_id, f.expires FROM custom_slugs s
+    JOIN files f ON f.id = s.files_id WHERE s.slug = ?
+  `).get(c.req.param('slug')) as SlugPublication | undefined
+  if (!publication) return next()
+  c.header('Cache-Control', 'no-store')
+  if (publication.expires !== null && publication.expires <= Math.floor(Date.now() / 1000)) return c.body(null, 404)
+  try {
+    const contents = await fs.promises.readFile(new Paths(appInstance).fullFilePath(publication.filename, 'html').filePath)
+    db.prepare('UPDATE files SET accessed = unixepoch() WHERE id = ?').run(publication.files_id)
+    c.header('Content-Type', 'text/html; charset=utf-8')
+    return c.body(new Uint8Array(contents))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return c.body(null, 404)
+    throw error
+  }
+})
+
 // Rewrite note paths to the full HTML file
 app.get(
   '/:filename{^\\w{' + Math.max(1, appInstance.folderPrefix) + ',}$}',
+  async (c, next) => {
+    // A backing filename is not an alternative route around slug lifecycle checks.
+    if (db.prepare('SELECT 1 FROM custom_slugs s JOIN files f ON f.id = s.files_id WHERE f.filename = ?').get(c.req.param('filename'))) return c.body(null, 404)
+    return next()
+  },
   trackView,
   serveStatic({
     root: `${userFilesFolder}/notes`,
@@ -140,7 +169,7 @@ app.onError((error, c) => {
   let userMessage = ''
   if (status === 500) {
     console.error(err)
-  } else if ([460, 415, 413].includes(status)) {
+  } else if (err instanceof SlugError || [460, 415, 413].includes(status)) {
     userMessage = err.message || ''
   } else {
     userMessage = StatusCodes[status] || ''

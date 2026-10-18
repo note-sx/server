@@ -96,3 +96,10 @@ CREATE TABLE IF NOT EXISTS `cf_country_daily`
 );
 
 CREATE INDEX IF NOT EXISTS idx_cf_country_daily_date ON cf_country_daily (date);
+
+-- Additive migration: existing notes keep their original filenames and URLs.
+CREATE TABLE IF NOT EXISTS custom_slugs (
+    slug TEXT NOT NULL PRIMARY KEY,
+    files_id INTEGER NOT NULL UNIQUE,
+    publication_id TEXT NOT NULL UNIQUE
+);

@@ -6,6 +6,7 @@ import { App } from '../types'
 import log from './Log'
 import { Stats } from './Stats'
 import { databaseBackupFile } from '../paths'
+import { withFileLock } from './file-lock'
 
 export class Cron {
   app: App
@@ -35,13 +36,20 @@ export class Cron {
   }
 
   async deleteExpiredFiles () {
+    return withFileLock(() => this.deleteExpiredFilesUnlocked())
+  }
+
+  private async deleteExpiredFilesUnlocked () {
     const files = db
-      .prepare('SELECT * FROM files WHERE expires IS NOT NULL AND expires < unixepoch()')
+      .prepare('SELECT * FROM files WHERE expires IS NOT NULL AND expires <= unixepoch()')
       .all()
 
     for (const row of (files || [])) {
       const file = row as unknown as TableRow<'files'>
 
+      const slug = db.prepare('SELECT slug FROM custom_slugs WHERE files_id = ?').get(file.id) as { slug: string } | undefined
+      // Remove only this publication's mapping, never a later claim of its name.
+      db.prepare('DELETE FROM custom_slugs WHERE files_id = ?').run(file.id)
       // Delete the file
       try {
         await unlink(this.paths.fullFilePath(file.filename, file.filetype).filePath)
@@ -50,7 +58,7 @@ export class Cron {
 
       // Clear from Cloudflare cache
       const url = this.paths.displayUrl(file.filename, file.filetype)
-      await this.app.cloudflare.purgeCache([url])
+      await this.app.cloudflare.purgeCache([url, ...(slug ? [this.paths.displayUrl(slug.slug, 'html')] : [])])
 
       // Finally, delete the reference from our DB
       db
