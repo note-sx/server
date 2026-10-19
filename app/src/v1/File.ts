@@ -10,6 +10,9 @@ import { appInstance } from '../index'
 import { userFilesFolder } from '../paths'
 import { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { randomUUID } from 'node:crypto'
+import { SlugError, SlugPublication, validateSlug } from './custom-slugs'
+import { withFileLock } from './file-lock'
 import { ContentfulStatusCode } from 'hono/dist/types/utils/http-status'
 
 export const fileExtensionWhitelist = [
@@ -53,6 +56,9 @@ export default class File extends Controller {
   private initialised = false
   private file?: MapperClass
   private cssFilename?: string
+  private publication?: SlugPublication
+  private newPublication = false
+  private reservedFileId?: number
 
   constructor (c: Context) {
     super(c)
@@ -63,6 +69,7 @@ export default class File extends Controller {
   }
 
   checkPostFilenameAndExtension () {
+    if (this.post.filename !== undefined && typeof this.post.filename !== 'string') throw new HTTPException(400)
     // File extension must be in our whitelist
     if (typeof this.post.filetype === 'string' && this.post.filetype?.length) {
       this.extension = this.post.filetype as string
@@ -73,6 +80,25 @@ export default class File extends Controller {
       throw new HTTPException(415, {
         message: `Unsupported media type ${this.extension.toUpperCase()}, please open an issue on Github`
       })
+    }
+
+    if (this.post.filename && this.extension === 'html') {
+      // Custom names are looked up before legacy filename parsing, which strips dots.
+      const publication = this.db.prepare(`
+        SELECT s.*, f.filename, f.users_id, f.expires FROM custom_slugs s
+        JOIN files f ON f.id = s.files_id WHERE s.slug = ? OR f.filename = ?
+      `).get(this.post.filename, this.post.filename) as SlugPublication | undefined
+      if (publication) {
+        if (this.post.filename !== publication.slug) throw new SlugError(409, { message: 'Use the public slug and its publication identifier to modify this note.' })
+        this.filename = publication.filename
+        this.publication = publication
+        return
+      }
+      if (this.post.publicationId !== undefined || this.post.customSlug !== undefined) {
+        validateSlug(this.post.filename)
+        this.filename = this.post.filename
+        return
+      }
     }
 
     if (this.post.filename) {
@@ -87,6 +113,9 @@ export default class File extends Controller {
         filename = filename.split('.')[0]
       }
 
+      if (this.extension === 'html' && this.db.prepare('SELECT 1 FROM custom_slugs s JOIN files f ON f.id = s.files_id WHERE f.filename = ? OR s.slug = ?').get(filename, filename)) {
+        throw new SlugError(409, { message: 'Use the exact public slug and its publication identifier to modify this note.' })
+      }
       // Filename must be lowercase alphanumeric
       if (filename.match(/[^a-z0-9]/) || !filename.length) {
         throw new HTTPException(400) // Bad request
@@ -109,6 +138,9 @@ export default class File extends Controller {
     }
 
     this.checkPostFilenameAndExtension()
+    if (this.extension !== 'html' && (this.post.customSlug !== undefined || this.post.publicationId !== undefined)) {
+      throw new SlugError(400, { message: 'Custom slugs are only supported for HTML notes.' })
+    }
 
     // Check if the file exists
     this.file = await Mapper(this.app.db, 'files')
@@ -121,6 +153,11 @@ export default class File extends Controller {
       // This only applies to HTML files - as users can reference other assets
       // no matter who uploaded them.
 
+      if (this.post.customSlug !== undefined || this.post.publicationId !== undefined || this.publication) {
+        await this.initSlug()
+        this.initialised = true
+        return
+      }
       const userProvidedName = !!this.filename
       if (!userProvidedName && createIfNotExist) {
         // No filename provided and we want to create a new one
@@ -194,11 +231,113 @@ export default class File extends Controller {
       }
     }
 
+    if (this.extension === 'html' && this.file.notFound) {
+      this.reserveNote()
+    }
     // Successful result
     this.initialised = true
   }
 
+  private reserveNote (slug?: string) {
+    const reservation = this.db.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM custom_slugs WHERE slug = ?').get(this.filename)) {
+        throw new SlugError(409, { message: 'This URL is already in use. Try sharing again.' })
+      }
+      if (slug && this.db.prepare("SELECT 1 FROM files WHERE filename = ? AND filetype = 'html'").get(slug)) {
+        throw new SlugError(409, { message: 'This slug is already in use. Choose another slug.' })
+      }
+      const result = this.db.prepare("INSERT INTO files (users_id, filename, filetype, expires) VALUES (?, ?, 'html', ?)").run(this.user.row.id, this.filename, this.getExpiration())
+      const fileId = Number(result.lastInsertRowid)
+      let publication: SlugPublication | undefined
+      if (slug) {
+        const id = randomUUID()
+        this.db.prepare('INSERT INTO custom_slugs (slug, files_id, publication_id) VALUES (?, ?, ?)').run(slug, fileId, id)
+        publication = { slug, files_id: fileId, publication_id: id, filename: this.filename, users_id: this.user.row.id, expires: this.getExpiration() ?? null }
+      }
+      return { fileId, publication }
+    })()
+    this.reservedFileId = reservation.fileId
+    this.publication = reservation.publication
+    this.newPublication = true
+    // Reload without an asynchronous gap after the namespace reservation.
+    this.file!.row = this.db.prepare('SELECT * FROM files WHERE id = ?').get(this.reservedFileId) as Record<string, any>
+  }
+
+  private async initSlug (): Promise<void> {
+    const slug = this.post.customSlug ?? this.publication?.slug ?? this.post.filename
+    validateSlug(slug)
+    if (this.post.publicationId !== undefined && typeof this.post.publicationId !== 'string') {
+      throw new SlugError(400, { message: 'Invalid publication identifier.' })
+    }
+    const original = this.db.prepare('SELECT s.slug FROM custom_slugs s JOIN files f ON f.id = s.files_id WHERE s.publication_id = ? AND (f.expires IS NULL OR f.expires > ?)').get(this.post.publicationId ?? '', now()) as { slug: string } | undefined
+    if (original && original.slug !== slug) throw new SlugError(409, { message: 'The slug of an active publication cannot be changed.' })
+    if (this.post.filename !== undefined && this.post.filename !== slug) {
+      throw new SlugError(409, { message: 'The slug of a shared note cannot be changed.' })
+    }
+    if (this.publication && this.publication.expires !== null && this.publication.expires <= now()) {
+      const old = this.publication
+      // Different backing files and id-scoped deletes protect a subsequent claim.
+      this.db.prepare('DELETE FROM custom_slugs WHERE files_id = ?').run(old.files_id)
+      this.db.prepare('DELETE FROM files WHERE id = ?').run(old.files_id)
+      try { await unlink(this.paths.fullFilePath(old.filename, 'html').filePath) } catch {}
+      await this.app.cloudflare.purgeCache([this.paths.displayUrl(old.slug, 'html')])
+      this.publication = undefined
+    }
+    if (!this.publication) {
+      this.publication = this.db.prepare(`
+        SELECT s.*, f.filename, f.users_id, f.expires FROM custom_slugs s
+        JOIN files f ON f.id = s.files_id WHERE s.slug = ?
+      `).get(slug) as SlugPublication | undefined
+      if (this.publication && this.publication.expires !== null && this.publication.expires <= now()) {
+        // Expiry also releases a slug for a first-time claimant.
+        return this.initSlug()
+      }
+    }
+    if (this.publication) {
+      if (this.post.filename !== slug || this.post.publicationId !== this.publication.publication_id) {
+        throw new SlugError(409, { message: 'This slug is already in use, or this publication is stale. Choose another slug for a new share.' })
+      }
+      if (this.publication.users_id !== this.user.row.id) throw new SlugError(403, { message: 'You do not own this publication.' })
+      this.filename = this.publication.filename
+      await this.file!.load({ id: this.publication.files_id })
+      return
+    }
+    if (!this.app.allowCustomSlugs) throw new SlugError(400, { message: 'Custom slug creation is disabled. Enable ALLOW_CUSTOM_SLUGS on your server.' })
+    // Existing random URLs cannot be converted into slugs through this API.
+    if (this.post.filename && !this.post.publicationId) throw new SlugError(409, { message: 'An existing shared URL cannot be changed into a custom slug.' })
+    const expiredRandom = this.db.prepare("SELECT id, filename FROM files WHERE filename = ? AND filetype = 'html' AND expires IS NOT NULL AND expires <= ?").get(slug, now()) as { id: number, filename: string } | undefined
+    if (expiredRandom) {
+      this.db.prepare('DELETE FROM files WHERE id = ?').run(expiredRandom.id)
+      try { await unlink(this.paths.fullFilePath(expiredRandom.filename, 'html').filePath) } catch {}
+      await this.app.cloudflare.purgeCache([this.paths.displayUrl(slug, 'html')])
+    }
+    do { this.filename = await this.getHashFilename('html') } while (this.filename === slug)
+    try {
+      this.reserveNote(slug)
+    } catch (error) {
+      if ((error as { code?: string }).code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || (error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new SlugError(409, { message: 'This slug is already in use. Choose another slug.' })
+      }
+      throw error
+    }
+  }
+
   async createNote () {
+    return withFileLock(async () => {
+      try {
+        return await this.createNoteUnlocked()
+      } catch (error) {
+        if (this.reservedFileId) {
+          this.db.prepare('DELETE FROM custom_slugs WHERE files_id = ?').run(this.reservedFileId)
+          this.db.prepare('DELETE FROM files WHERE id = ?').run(this.reservedFileId)
+          try { await unlink(this.getFullFilePath().filePath) } catch {}
+        }
+        throw error
+      }
+    })
+  }
+
+  private async createNoteUnlocked () {
     await this.initFile()
 
     const note = new WebNote(this.app)
@@ -245,6 +384,10 @@ export default class File extends Controller {
   }
 
   async deleteFile () {
+    return withFileLock(() => this.deleteFileUnlocked())
+  }
+
+  private async deleteFileUnlocked () {
     // Only HTML notes for now
     if (this.post.filetype !== 'html') {
       throw new HTTPException(404)
@@ -252,6 +395,13 @@ export default class File extends Controller {
 
     // Check the incoming filename and extension, and fail if necessary
     this.checkPostFilenameAndExtension()
+
+    if (this.publication) {
+      if (this.post.publicationId !== this.publication.publication_id) throw new SlugError(409, { message: 'This publication is stale or its identifier is missing. Nothing was deleted.' })
+      if (this.publication.users_id !== this.user.row.id) throw new SlugError(403, { message: 'You do not own this publication.' })
+    } else if (this.post.publicationId !== undefined || this.filename.includes('-')) {
+      throw new SlugError(409, { message: 'This publication has expired or was deleted. Nothing was deleted.' })
+    }
 
     // Check the file exists and is owned by this user
     this.file = await Mapper(this.app.db, 'files')
@@ -273,6 +423,7 @@ export default class File extends Controller {
       await this.app.cloudflare.purgeCache([this.getDisplayUrl()])
 
       // Finally, delete the reference from our DB
+      this.db.prepare('DELETE FROM custom_slugs WHERE files_id = ?').run(this.file.row.id)
       this.db
         .prepare('DELETE FROM files WHERE filetype = \'html\' AND filename = ?')
         .run(this.filename)
@@ -325,7 +476,7 @@ export default class File extends Controller {
       this.getFileUrl()
     ])
     const date = now()
-    const isNew = this.file.notFound
+    const isNew = this.file.notFound || this.newPublication
     if (isNew) {
       // This is a new record
       this.file.set({
@@ -373,7 +524,7 @@ export default class File extends Controller {
       filename,
       extension
     } = this.hydrate(optionalFilename, optionalExtension)
-    return this.paths.displayUrl(filename, extension)
+    return this.paths.displayUrl(extension === 'html' && !optionalFilename && this.publication ? this.publication.slug : filename, extension)
   }
 
   /**
@@ -455,6 +606,7 @@ export default class File extends Controller {
     return {
       success: true,
       files: result,
+      capabilities: { customSlugs: this.app.allowCustomSlugs },
       css: css.notFound
         ? null
         : {
@@ -487,7 +639,7 @@ export default class File extends Controller {
         // 0.140625 = 36 / 256
         name += Math.floor(bytes[i] * 0.140625).toString(36)
       }
-      if (!check.get(name)) {
+      if (!check.get(name) && !this.db.prepare('SELECT 1 FROM custom_slugs WHERE slug = ?').get(name)) {
         return name
       }
     }
@@ -510,7 +662,8 @@ export default class File extends Controller {
   returnSuccessUrl (url?: string) {
     return {
       success: true,
-      url: url || this.getDisplayUrl()
+      url: url || this.getDisplayUrl(),
+      ...(this.publication && { publicationId: this.publication.publication_id })
     }
   }
 

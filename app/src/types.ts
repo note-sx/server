@@ -12,6 +12,7 @@ export interface App {
   folderPrefix: number;
   allowNewUsers: boolean;
   filenameLengthHtml: number;
+  allowCustomSlugs: boolean;
 }
 
 export enum DebugOption {
