@@ -1,4 +1,6 @@
-FROM node:lts-alpine
+# Pinned to a release with the fix for CVE-2026-111497 (Brotli decoder RCE).
+# Bump this when a new Node patch release comes out.
+FROM node:24.22.1-alpine
 
 # Fonts for server-side SVG-to-PNG rendering of the stats OG image.
 # Without these, resvg silently drops all text from the rendered card.
