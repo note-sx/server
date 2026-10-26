@@ -94,6 +94,17 @@ app.get(
   })
 )
 app.use('/css/*', trackView, serveStatic({ root: userFilesFolder }))
+// Hono's MIME table has no m4a or wav; without these Safari gets
+// application/octet-stream and refuses to play the audio
+const extraMimeTypes: { [key: string]: string } = {
+  m4a: 'audio/mp4',
+  wav: 'audio/wav'
+}
+app.use('/files/*', async (c, next) => {
+  await next()
+  const type = extraMimeTypes[c.req.path.split('.').pop()?.toLowerCase() || '']
+  if (type && c.res.ok) c.res.headers.set('Content-Type', type)
+})
 app.use('/files/*', trackView, serveStatic({ root: userFilesFolder }))
 
 // Rewrite legacy hosting paths
