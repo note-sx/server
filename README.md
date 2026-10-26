@@ -26,7 +26,7 @@ is needed - SQLite keeps its scratch files in `db/tmp`.
 |-----------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | BASE_WEB_URL                | https://example.com | The base public URL for your server.                                                                                                     |
 | HASH_SALT                   | Any random string   |                                                                                                                                          |
-| MAXIMUM_UPLOAD_SIZE_MB      | 5                   | The maximum allowed size for user uploads in megabytes (MB).                                                                             |
+| MAXIMUM_UPLOAD_SIZE_MB      | 5                   | Max upload size in MB. Raise it (e.g. 50) to share audio.                                                                         |
 | FOLDER_PREFIX               | 0                   | *OPTIONAL.* Set this to `1` or `2` if you want user files to be split into subfolders based on the first *N* characters of the filename. |
 | ALLOW_NEW_USERS             | true                | *OPTIONAL.* Set this to `false` to disable new user registration. Existing users can still generate new API keys.                        |
 | FILENAME_LENGTH_HTML        | 8                   | *OPTIONAL.* Length of the random base36 filename for shared notes. Default `8`. Lower values shorten URLs but raise collision risk.      |

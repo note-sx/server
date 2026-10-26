@@ -19,6 +19,8 @@ export const fileExtensionWhitelist = [
   'jpg', 'jpeg', 'png', 'webp', 'svg', 'gif',
   // Video
   'webm',
+  // Audio
+  'mp3', 'm4a', 'ogg', 'oga', 'opus', 'wav', 'weba', 'aac',
   // Fonts
   'ttf', 'otf', 'woff', 'woff2'
 ]
